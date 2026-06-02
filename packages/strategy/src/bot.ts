@@ -24,6 +24,11 @@ export function resolveActionId(actionId: ActionId, dp: DecisionPoint): Action |
   if (actionId === 'call') {
     return dp.legalActions.some((l) => l.type === 'call') ? { type: 'call' } : null
   }
+  if (actionId === 'allIn') {
+    const legal = dp.legalActions.find((l) => l.type === 'raise') ?? dp.legalActions.find((l) => l.type === 'bet')
+    if (!legal) return null
+    return { type: legal.type, amount: legal.max! }
+  }
   const m = /^raiseTo:([\d.]+)$/.exec(actionId)
   if (m) {
     const amount = Math.round(Number(m[1]) * dp.bigBlindChips)

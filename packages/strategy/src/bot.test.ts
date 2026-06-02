@@ -55,6 +55,10 @@ describe('resolveActionId', () => {
     expect(resolveActionId('raiseTo:500', dp())).toEqual({ type: 'raise', amount: 10_000 }) // above max → all-in
   })
 
+  it('maps charted all-in to the max legal raise amount', () => {
+    expect(resolveActionId('allIn', dp())).toEqual({ type: 'raise', amount: 10_000 })
+  })
+
   it('returns null for an action that is not legal here', () => {
     expect(resolveActionId('check', dp())).toBeNull() // facing a bet
   })
@@ -70,7 +74,7 @@ describe('decideGtoAction', () => {
 
   it('falls back to fold/check when the node is unsupported', async () => {
     const unsupported = dp({
-      // 3-bet pot (two raises) → no chart support → fallback.
+      // Cold 4-bet/deeper spot → no seed chart support → fallback.
       nodeKey: {
         street: 'preflop',
         heroPosition: 'BTN',

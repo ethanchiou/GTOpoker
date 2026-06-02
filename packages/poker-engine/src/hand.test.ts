@@ -1,6 +1,6 @@
 import { DEFAULT_TABLE_CONFIG } from '@gto/domain-config'
 import { describe, expect, it } from 'vitest'
-import { applyAction, applyActions, createHand, legalActions, runToShowdown } from './hand'
+import { applyAction, applyActions, createHand, decisionPoint, legalActions, runToShowdown } from './hand'
 import type { HandState } from './types'
 
 const BB = DEFAULT_TABLE_CONFIG.bigBlindChips // 100
@@ -92,6 +92,32 @@ describe('action legality', () => {
     // min legal raise is to 2bb (200); 150 is illegal.
     expect(() => applyAction(s, { type: 'raise', amount: 150 })).toThrow()
     expect(() => applyAction(s, { type: 'raise', amount: 200 })).not.toThrow()
+  })
+
+  it('offers multiple preflop open sizes, including larger opens', () => {
+    const dp = decisionPoint(fresh())!
+    expect(dp.sizeOptions.map((o) => o.label)).toEqual(['Open 2.5bb', 'Open 3bb', 'Open 3.5bb', 'All-in'])
+    expect(dp.sizeOptions.map((o) => o.amount)).toEqual([250, 300, 350, START])
+  })
+
+  it('offers call, fold, 4-bet sizes, and all-in after a 3-bet', () => {
+    const s = applyActions(fresh(), [
+      { type: 'raise', amount: 250 }, // UTG opens.
+      { type: 'fold' },
+      { type: 'fold' },
+      { type: 'fold' },
+      { type: 'fold' },
+      { type: 'raise', amount: 1100 }, // BB 3-bets.
+    ])
+    const dp = decisionPoint(s)!
+    expect(dp.legalActions.map((a) => a.type)).toEqual(['fold', 'call', 'raise'])
+    expect(dp.sizeOptions.map((o) => o.label)).toEqual([
+      '4-bet to 24.2bb',
+      '4-bet to 27.5bb',
+      '4-bet to 30.8bb',
+      'All-in',
+    ])
+    expect(dp.sizeOptions.map((o) => o.amount)).toEqual([2420, 2750, 3080, START])
   })
 })
 

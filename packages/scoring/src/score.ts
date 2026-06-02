@@ -11,6 +11,13 @@ import {
 
 export type Classification = 'best' | 'correct' | 'inaccuracy' | 'wrong' | 'blunder'
 
+export interface RaiseSizeTarget {
+  actionId: ActionId
+  targetBb: number
+  minBb: number
+  maxBb: number
+}
+
 export interface DecisionScore {
   chosenActionId: ActionId
   bestActionId: ActionId
@@ -24,6 +31,8 @@ export interface DecisionScore {
   confidence: StrategyMeta['confidence']
   /** True when the chosen bet/raise size was snapped to a different tree size for grading. */
   sizeSnapped: boolean
+  /** Acceptable bet/raise size band for the nearest charted raise action. */
+  raiseSizeTarget: RaiseSizeTarget | null
   /** The full GTO mix for the acting hand (for the feedback panel). */
   strategyRow: ActionFrequency[]
 }
@@ -36,17 +45,47 @@ function raiseToBb(id: ActionId): number {
   return Number(id.slice('raiseTo:'.length))
 }
 
-/** Map the user's engine Action to an actionId in the mix, snapping bet size to the nearest tree size. */
-function mapChosen(action: Action, row: ActionFrequency[], bigBlindChips: number): { id: ActionId; snapped: boolean } {
-  if (action.type === 'fold') return { id: 'fold', snapped: false }
-  if (action.type === 'check') return { id: 'check', snapped: false }
-  if (action.type === 'call') return { id: 'call', snapped: false }
+function actionIdForRaiseTo(bb: number): ActionId {
+  return `raiseTo:${Number(bb.toFixed(2))}`
+}
 
-  const targetBb = (action.amount ?? 0) / bigBlindChips
+function legalSizeFor(action: Action, dp: DecisionPoint): { min?: number; max?: number } | null {
+  if (action.type !== 'bet' && action.type !== 'raise') return null
+  return dp.legalActions.find((l) => l.type === action.type) ?? null
+}
+
+function raiseSizeTarget(actionId: ActionId): RaiseSizeTarget {
+  const targetBb = raiseToBb(actionId)
+  const toleranceBb = Math.max(0.5, targetBb * 0.1)
+  return {
+    actionId,
+    targetBb,
+    minBb: Number(Math.max(0, targetBb - toleranceBb).toFixed(2)),
+    maxBb: Number((targetBb + toleranceBb).toFixed(2)),
+  }
+}
+
+/** Map the user's engine Action to an actionId in the mix, snapping only inside an acceptable size band. */
+function mapChosen(
+  action: Action,
+  row: ActionFrequency[],
+  dp: DecisionPoint,
+): { id: ActionId; snapped: boolean; raiseSizeTarget: RaiseSizeTarget | null } {
+  if (action.type === 'fold') return { id: 'fold', snapped: false, raiseSizeTarget: null }
+  if (action.type === 'check') return { id: 'check', snapped: false, raiseSizeTarget: null }
+  if (action.type === 'call') return { id: 'call', snapped: false, raiseSizeTarget: null }
+
+  const legalSize = legalSizeFor(action, dp)
+  const isAllIn = legalSize?.max !== undefined && Math.abs((action.amount ?? 0) - legalSize.max) <= 1
+  if (isAllIn && row.some((r) => r.actionId === 'allIn')) {
+    return { id: 'allIn', snapped: false, raiseSizeTarget: null }
+  }
+
+  const targetBb = (action.amount ?? 0) / dp.bigBlindChips
   const raiseIds = row.map((r) => r.actionId).filter(isRaiseId)
   if (raiseIds.length === 0) {
     // The mix has no raise here; represent the chosen size as its own (freq-0) id.
-    return { id: `raiseTo:${Number(targetBb.toFixed(2))}`, snapped: false }
+    return { id: actionIdForRaiseTo(targetBb), snapped: false, raiseSizeTarget: null }
   }
   let bestId = raiseIds[0]!
   let bestDiff = Infinity
@@ -57,7 +96,13 @@ function mapChosen(action: Action, row: ActionFrequency[], bigBlindChips: number
       bestId = id
     }
   }
-  return { id: bestId, snapped: Math.abs(raiseToBb(bestId) - targetBb) > 0.01 }
+  const target = raiseSizeTarget(bestId)
+  const inTargetBand = targetBb >= target.minBb && targetBb <= target.maxBb
+  return {
+    id: inTargetBand ? bestId : actionIdForRaiseTo(targetBb),
+    snapped: inTargetBand && Math.abs(raiseToBb(bestId) - targetBb) > 0.01,
+    raiseSizeTarget: target,
+  }
 }
 
 function freqOf(row: ActionFrequency[], id: ActionId): number {
@@ -94,6 +139,10 @@ function classifyByEvLoss(evLossBb: number, t: ScoringThresholds): Classificatio
  */
 function estimateEvLoss(chosenId: ActionId, bestId: ActionId, row: ActionFrequency[], dp: DecisionPoint): number {
   const potBb = dp.potChips / dp.bigBlindChips
+  if (isRaiseId(chosenId) && isRaiseId(bestId)) {
+    const sizeMissBb = Math.abs(raiseToBb(chosenId) - raiseToBb(bestId))
+    return Math.min(0.1 + 0.12 * sizeMissBb + 0.03 * potBb, 3)
+  }
   const modalFreq = Math.max(...row.map((a) => a.frequency))
   if (chosenId === 'fold') {
     // Folding something the GTO strategy keeps: forfeited EV scales with how
@@ -119,7 +168,7 @@ export function scoreDecision(params: ScoreParams): DecisionScore {
   const thresholds = params.thresholds ?? DEFAULT_SCORING_THRESHOLDS
   const hasEv = row.some((a) => a.ev !== undefined)
 
-  const { id: chosenActionId, snapped } = mapChosen(chosen, row, dp.bigBlindChips)
+  const { id: chosenActionId, snapped, raiseSizeTarget } = mapChosen(chosen, row, dp)
   const bestActionId = bestAction(row, hasEv)
   const chosenFreq = freqOf(row, chosenActionId)
 
@@ -159,6 +208,7 @@ export function scoreDecision(params: ScoreParams): DecisionScore {
     estimated,
     confidence,
     sizeSnapped: snapped,
+    raiseSizeTarget,
     strategyRow: row,
   }
 }

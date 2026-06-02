@@ -11,6 +11,13 @@ correct **mixed-strategy frequencies**.
 
 Early development. **v1 = preflop-first MVP** (see `spec.md` §2.2 and the phased roadmap §16).
 
+## Next Product Step
+
+Progress beyond the preflop MVP: train flop, turn, and river decisions instead of immediately
+running postflop to showdown. Board cards should continue to come from the shuffled deck each hand
+so flop/turn/river runouts are random, while bot actions should remain hand-aware through the
+strategy provider so weak holdings do not take aggressive sizes at unrealistic frequencies.
+
 ## Architecture (one-liner)
 
 A framework-free TypeScript **core** (game engine, strategy, scoring, hand history) behind injected

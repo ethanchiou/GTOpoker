@@ -24,6 +24,7 @@ const ACTION_LABELS: Record<string, string> = {
   fold: 'Fold',
   check: 'Check',
   call: 'Call',
+  allIn: 'All-in',
 }
 
 /** Human label for a chart action id ('raiseTo:2.5' → 'Raise 2.5bb'). */
@@ -39,6 +40,7 @@ export function actionColor(actionId: string): string {
   if (actionId === 'fold') return '#64748b' // slate
   if (actionId === 'call') return '#22c55e' // green
   if (actionId === 'check') return '#14b8a6' // teal
+  if (actionId === 'allIn') return '#f97316' // orange
   if (actionId.startsWith('raiseTo:')) return '#ef4444' // red
   return '#a855f7'
 }
