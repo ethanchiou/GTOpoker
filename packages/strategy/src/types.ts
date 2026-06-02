@@ -3,7 +3,7 @@ import type { HandClass } from './hand-class'
 
 /**
  * An action identifier used by charts and the scorer. Conventions:
- *   'fold' | 'check' | 'call' | 'raiseTo:<bb>'   (e.g. 'raiseTo:2.5', 'raiseTo:12')
+ *   'fold' | 'check' | 'call' | 'allIn' | 'raiseTo:<bb>'   (e.g. 'raiseTo:2.5', 'raiseTo:12')
  */
 export type ActionId = string
 

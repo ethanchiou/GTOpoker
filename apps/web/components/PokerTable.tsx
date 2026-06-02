@@ -15,7 +15,7 @@ const SLOTS: Array<{ x: number; y: number }> = [
 
 export function PokerTable({ state, heroSeat }: { state: HandState; heroSeat: number }) {
   const n = state.seats.length
-  const showdown = state.phase === 'complete' && !!state.result?.wentToShowdown
+  const complete = state.phase === 'complete'
   const pot = state.seats.reduce((s, x) => s + x.committedTotal, 0)
 
   return (
@@ -41,7 +41,7 @@ export function PokerTable({ state, heroSeat }: { state: HandState; heroSeat: nu
       {state.seats.map((seat) => {
         const slot = (seat.seatIndex - heroSeat + n) % n
         const pos = SLOTS[slot]!
-        const reveal = seat.isHero || (showdown && seat.status !== 'folded')
+        const reveal = seat.isHero || complete
         return (
           <div
             key={seat.seatIndex}

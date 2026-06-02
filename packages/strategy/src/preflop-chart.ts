@@ -14,6 +14,7 @@ export interface AuthoredSpot {
   id: string
   heroPosition: Position
   openerPosition?: Position
+  threeBetPosition?: Position
   /** Non-fold actions; whatever frequency is left over folds. */
   actions: AuthoredAction[]
 }
@@ -57,7 +58,7 @@ interface PreflopScenario {
   spotId: string
 }
 
-/** Classify a preflop node into a chart spot id (RFI or vs-RFI), or null. */
+/** Classify a preflop node into a chart spot id (RFI, vs-RFI, or vs-3bet), or null. */
 export function classifyPreflop(node: GameNodeKey): PreflopScenario | null {
   if (node.street !== 'preflop') return null
   const raises = node.history.filter((a) => a.action.type === 'raise')
@@ -70,7 +71,12 @@ export function classifyPreflop(node: GameNodeKey): PreflopScenario | null {
     const opener = raises[0]!.position
     return { spotId: `vsRfi/${hero}/vs${opener}` }
   }
-  return null // 3-bet pots and deeper are not modelled in the MVP charts
+  if (raises.length === 2) {
+    const opener = raises[0]!.position
+    const threeBettor = raises[1]!.position
+    if (opener === hero) return { spotId: `vs3bet/${hero}/vs${threeBettor}` }
+  }
+  return null // Cold 4-bet spots and deeper trees are not modelled in the seed charts.
 }
 
 export class PreflopChartProvider implements StrategyProvider {

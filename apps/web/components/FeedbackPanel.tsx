@@ -1,11 +1,24 @@
 import type { DecisionScore } from '@gto/scoring'
-import { actionColor, actionLabel, classificationStyle } from '../lib/format'
+import { actionLabel, classificationStyle } from '../lib/format'
+import { StrategyMix } from './StrategyMix'
 
-export function FeedbackPanel({ score }: { score: DecisionScore | null }) {
+function bbLabel(value: number): string {
+  return Number.isInteger(value) ? `${value}` : value.toFixed(1)
+}
+
+export function FeedbackPanel({
+  score,
+  uncharted = false,
+}: {
+  score: DecisionScore | null
+  uncharted?: boolean
+}) {
   if (!score) {
     return (
       <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-400">
-        Make a decision to see GTO feedback. The grid above shows the optimal strategy for your spot.
+        {uncharted
+          ? 'This hand ended after an uncharted decision, so no GTO score was recorded. Review the hand result below.'
+          : 'Make a decision to see GTO feedback and mixed-strategy frequencies.'}
       </div>
     )
   }
@@ -42,21 +55,15 @@ export function FeedbackPanel({ score }: { score: DecisionScore | null }) {
         {score.sizeSnapped && <span className="ml-1 text-slate-400">(graded as {youPlayed})</span>}
       </div>
 
-      <div className="mt-3 space-y-1.5">
-        {score.strategyRow.map((a) => (
-          <div key={a.actionId} className="flex items-center gap-2 text-xs">
-            <span className="w-24 shrink-0 text-slate-300">{actionLabel(a.actionId)}</span>
-            <div className="h-3 flex-1 overflow-hidden rounded bg-slate-800">
-              <div
-                className="h-full"
-                style={{ width: `${(a.frequency * 100).toFixed(1)}%`, background: actionColor(a.actionId) }}
-              />
-            </div>
-            <span className="w-10 shrink-0 text-right font-mono text-slate-300">
-              {(a.frequency * 100).toFixed(0)}%
-            </span>
-          </div>
-        ))}
+      {score.raiseSizeTarget && (
+        <p className="mt-2 text-xs text-slate-400">
+          Target raise size {bbLabel(score.raiseSizeTarget.minBb)}-{bbLabel(score.raiseSizeTarget.maxBb)}bb
+          {' '}({bbLabel(score.raiseSizeTarget.targetBb)}bb chart size).
+        </p>
+      )}
+
+      <div className="mt-3">
+        <StrategyMix row={score.strategyRow} title="GTO mix" framed={false} />
       </div>
 
       {score.estimated && (

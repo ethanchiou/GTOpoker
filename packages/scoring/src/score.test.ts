@@ -62,7 +62,33 @@ describe('scoreDecision — frequency-only (chart) model', () => {
     const s = scoreDecision({ chosen: { type: 'raise', amount: 300 }, decisionPoint: dp(), strategyRow: pureRaise, meta: META })
     expect(s.chosenActionId).toBe('raiseTo:2.5')
     expect(s.sizeSnapped).toBe(true)
+    expect(s.raiseSizeTarget).toEqual({ actionId: 'raiseTo:2.5', targetBb: 2.5, minBb: 2, maxBb: 3 })
     expect(s.classification).toBe('best') // right action, snapped size
+  })
+
+  it('does not snap a raise outside the target size band', () => {
+    const pureRaise: ActionFrequency[] = [{ actionId: 'raiseTo:2.5', frequency: 1 }]
+    const s = scoreDecision({ chosen: { type: 'raise', amount: 350 }, decisionPoint: dp(), strategyRow: pureRaise, meta: META })
+    expect(s.chosenActionId).toBe('raiseTo:3.5')
+    expect(s.sizeSnapped).toBe(false)
+    expect(s.frequencyCredit).toBe(0)
+    expect(['inaccuracy', 'wrong', 'blunder']).toContain(s.classification)
+  })
+
+  it('grades an all-in action from the mixed strategy row', () => {
+    const fourBetMix: ActionFrequency[] = [
+      { actionId: 'raiseTo:25', frequency: 0.6 },
+      { actionId: 'allIn', frequency: 0.4 },
+    ]
+    const s = scoreDecision({
+      chosen: { type: 'raise', amount: 10_000 },
+      decisionPoint: dp({ legalActions: [{ type: 'raise', min: 2_000, max: 10_000 }] }),
+      strategyRow: fourBetMix,
+      meta: META,
+    })
+    expect(s.chosenActionId).toBe('allIn')
+    expect(s.frequencyCredit).toBe(0.4)
+    expect(s.classification).toBe('correct')
   })
 })
 

@@ -29,8 +29,12 @@ describe('classifyPreflop', () => {
     expect(classifyPreflop(node('BB', [raiseBy('BTN')]))?.spotId).toBe('vsRfi/BB/vsBTN')
   })
 
-  it('treats 3-bet pots as unsupported (null)', () => {
-    expect(classifyPreflop(node('BTN', [raiseBy('CO'), raiseBy('BTN')]))).toBeNull()
+  it('classifies the original opener facing a 3-bet', () => {
+    expect(classifyPreflop(node('BTN', [raiseBy('BTN'), raiseBy('BB')]))?.spotId).toBe('vs3bet/BTN/vsBB')
+  })
+
+  it('treats cold 4-bet decisions as unsupported', () => {
+    expect(classifyPreflop(node('BB', [raiseBy('CO'), raiseBy('BTN')]))).toBeNull()
   })
 })
 
@@ -40,8 +44,43 @@ describe('PreflopChartProvider with the seed chart', () => {
   it('supports modelled spots and rejects unmodelled ones', () => {
     expect(provider.supports(node('BTN'))).toBe(true)
     expect(provider.supports(node('BB', [raiseBy('BTN')]))).toBe(true)
+    expect(provider.supports(node('BTN', [raiseBy('BTN'), raiseBy('BB')]))).toBe(true)
     expect(provider.supports(node('BB'))).toBe(false) // BB RFI not modelled
-    expect(provider.supports(node('BTN', [raiseBy('CO'), raiseBy('BTN')]))).toBe(false)
+    expect(provider.supports(node('BB', [raiseBy('CO'), raiseBy('BTN')]))).toBe(false)
+  })
+
+  it('supports every standard single-open response spot', () => {
+    const spots: Array<[Position, Position]> = [
+      ['HJ', 'UTG'],
+      ['CO', 'UTG'],
+      ['CO', 'HJ'],
+      ['BTN', 'UTG'],
+      ['BTN', 'HJ'],
+      ['BTN', 'CO'],
+      ['SB', 'UTG'],
+      ['SB', 'HJ'],
+      ['SB', 'CO'],
+      ['SB', 'BTN'],
+      ['BB', 'UTG'],
+      ['BB', 'HJ'],
+      ['BB', 'CO'],
+      ['BB', 'BTN'],
+      ['BB', 'SB'],
+    ]
+    for (const [hero, opener] of spots) {
+      expect(provider.supports(node(hero, [raiseBy(opener)])), `vsRfi/${hero}/vs${opener}`).toBe(true)
+    }
+  })
+
+  it('returns call, 4-bet, all-in, and fold mixes when the opener faces a 3-bet', async () => {
+    const s = await provider.getStrategy(node('BTN', [raiseBy('BTN'), raiseBy('BB')]))
+    expect(s.spotId).toBe('vs3bet/BTN/vsBB')
+    expect(strategyForHand(s, 'AA')).toEqual([
+      { actionId: 'raiseTo:25', frequency: 0.75 },
+      { actionId: 'allIn', frequency: 0.25 },
+    ])
+    expect(strategyForHand(s, '99')).toContainEqual({ actionId: 'call', frequency: 1 })
+    expect(strategyForHand(s, '72o')).toEqual([{ actionId: 'fold', frequency: 1 }])
   })
 
   it('returns pure, folded, and mixed strategies for the BTN open', async () => {
@@ -56,9 +95,11 @@ describe('PreflopChartProvider with the seed chart', () => {
 
   it('every spot compiles to valid frequencies summing to 1 (catches range overlap)', async () => {
     for (const spot of SEED_CHART.spots) {
-      const n = spot.openerPosition
-        ? node(spot.heroPosition, [raiseBy(spot.openerPosition)])
-        : node(spot.heroPosition)
+      const n = spot.threeBetPosition
+        ? node(spot.heroPosition, [raiseBy(spot.heroPosition), raiseBy(spot.threeBetPosition)])
+        : spot.openerPosition
+          ? node(spot.heroPosition, [raiseBy(spot.openerPosition)])
+          : node(spot.heroPosition)
       const s = await provider.getStrategy(n)
       for (const [cls, row] of Object.entries(s.grid)) {
         const sum = row.reduce((acc, a) => acc + a.frequency, 0)

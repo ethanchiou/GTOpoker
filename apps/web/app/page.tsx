@@ -1,12 +1,14 @@
 'use client'
 
-import { handClass } from '@gto/strategy'
+import { handClass, strategyForHand } from '@gto/strategy'
 import { useEffect } from 'react'
 import { ActionControls } from '../components/ActionControls'
 import { FeedbackPanel } from '../components/FeedbackPanel'
+import { HandReviewPanel } from '../components/HandReviewPanel'
 import { PokerTable } from '../components/PokerTable'
 import { SessionStatsView } from '../components/SessionStatsView'
 import { StrategyGrid } from '../components/StrategyGrid'
+import { StrategyMix } from '../components/StrategyMix'
 import { HERO_SEAT, usePlayStore } from '../lib/store'
 
 export default function Home() {
@@ -16,10 +18,12 @@ export default function Home() {
     strategy,
     reviewStrategy,
     reviewHand,
+    chartRevealed,
     lastScore,
     stats,
     busy,
     newHand,
+    revealChart,
     heroAct,
   } = usePlayStore()
 
@@ -28,8 +32,13 @@ export default function Home() {
   }, [state, newHand])
 
   const heroTurn = decision !== null
-  const gridStrategy = heroTurn ? strategy : reviewStrategy
-  const gridHand = heroTurn && decision ? handClass(decision.heroHoleCards[0], decision.heroHoleCards[1]) : reviewHand
+  const currentHand = heroTurn && decision ? handClass(decision.heroHoleCards[0], decision.heroHoleCards[1]) : null
+  const hasReview = lastScore !== null && reviewStrategy !== null
+  const showingCurrentChart = heroTurn && chartRevealed && strategy !== null
+  const gridStrategy = showingCurrentChart ? strategy : hasReview ? reviewStrategy : strategy
+  const gridHand = showingCurrentChart ? currentHand : hasReview ? reviewHand : currentHand
+  const strategyRow = gridStrategy && gridHand ? strategyForHand(gridStrategy, gridHand) : null
+  const canShowStrategy = Boolean(gridStrategy && (chartRevealed || hasReview))
   const handOver = state?.phase === 'complete'
 
   return (
@@ -64,17 +73,32 @@ export default function Home() {
             )}
           </div>
 
-          <FeedbackPanel score={lastScore} />
+          <FeedbackPanel score={lastScore} uncharted={Boolean(handOver && !lastScore)} />
+          <HandReviewPanel state={state} heroSeat={HERO_SEAT} />
         </section>
 
         {/* Right: strategy grid + stats */}
         <section className="space-y-5">
           <div>
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
-              GTO strategy {gridStrategy ? `· ${gridStrategy.spotId}` : ''}
+              GTO strategy {canShowStrategy && gridStrategy ? `· ${gridStrategy.spotId}` : ''}
             </h2>
-            {gridStrategy ? (
-              <StrategyGrid strategy={gridStrategy} highlight={gridHand ?? undefined} />
+            {canShowStrategy && gridStrategy ? (
+              <div className="space-y-3">
+                {strategyRow && <StrategyMix row={strategyRow} title={gridHand ? `${gridHand} mix` : 'Hand mix'} />}
+                <StrategyGrid strategy={gridStrategy} highlight={gridHand ?? undefined} />
+              </div>
+            ) : gridStrategy ? (
+              <div className="rounded border border-slate-800 bg-slate-900/40 p-6 text-center">
+                <p className="text-sm text-slate-400">Chart hidden for this decision.</p>
+                <button
+                  className="mt-3 rounded-md bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-amber-300 disabled:opacity-40"
+                  disabled={busy}
+                  onClick={revealChart}
+                >
+                  Reveal chart
+                </button>
+              </div>
             ) : (
               <div className="rounded border border-slate-800 bg-slate-900/40 p-6 text-center text-sm text-slate-500">
                 The strategy grid appears when you reach a charted spot (RFI or single-raise pots).

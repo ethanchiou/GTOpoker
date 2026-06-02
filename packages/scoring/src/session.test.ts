@@ -18,6 +18,7 @@ const score = (classification: Classification, evLossBb: number): DecisionScore 
   estimated: false,
   confidence: 'low',
   sizeSnapped: false,
+  raiseSizeTarget: null,
   strategyRow: [],
 })
 

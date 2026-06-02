@@ -29,6 +29,8 @@ const provider = new PreflopChartProvider(SEED_CHART)
 const HERO_SEAT = 0
 const NUM_SEATS = 6
 const MAX_STEPS = 200 // safety bound on the bot-advance loop
+const MAX_NEW_HAND_ATTEMPTS = 25
+const INITIAL_BASE_SEED = createSessionSeed()
 
 type ControllerList = ('human' | 'bot')[]
 const CONTROLLERS: ControllerList = Array.from({ length: NUM_SEATS }, (_, i) =>
@@ -39,6 +41,10 @@ interface DriveResult {
   state: HandState
   decision: DecisionPoint | null
   strategy: NodeStrategy | null
+}
+
+function createSessionSeed(): string {
+  return `gto-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 /**
@@ -80,15 +86,18 @@ export interface PlayStore {
   /** The hero's most recent scored spot, kept for post-hand review. */
   reviewStrategy: NodeStrategy | null
   reviewHand: string | null
+  chartRevealed: boolean
   stats: SessionStats
+  scenarioRng: SeededRng
   botRng: SeededRng
   busy: boolean
   newHand: () => Promise<void>
+  revealChart: () => void
   heroAct: (action: Action) => Promise<void>
 }
 
 export const usePlayStore = create<PlayStore>((set, get) => ({
-  baseSeed: 'gto',
+  baseSeed: INITIAL_BASE_SEED,
   handNumber: 0,
   buttonIndex: 0,
   state: null,
@@ -97,34 +106,66 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
   lastScore: null,
   reviewStrategy: null,
   reviewHand: null,
+  chartRevealed: false,
   stats: createSessionStats(),
-  botRng: createRng('gto:bots'),
+  scenarioRng: createRng(`${INITIAL_BASE_SEED}:scenarios`),
+  botRng: createRng(`${INITIAL_BASE_SEED}:bots`),
   busy: false,
 
   async newHand() {
-    const handNumber = get().handNumber + 1
-    const buttonIndex = handNumber % NUM_SEATS
-    const seed = `${get().baseSeed}-${handNumber}`
-    set({ busy: true, lastScore: null, reviewStrategy: null, reviewHand: null })
-    const fresh = createHand({
-      handId: seed,
-      buttonIndex,
-      heroSeat: HERO_SEAT,
-      controllers: CONTROLLERS,
-      seed,
-    })
-    const res = await drive(fresh, get().botRng)
-    const stats = get().stats
-    if (res.state.phase === 'complete') noteHandComplete(stats)
+    let handNumber = get().handNumber
+    const { baseSeed, scenarioRng, botRng } = get()
+    let buttonIndex = get().buttonIndex
+    let res: DriveResult | null = null
+
+    set({ busy: true, lastScore: null, reviewStrategy: null, reviewHand: null, chartRevealed: false })
+
+    for (let attempt = 0; attempt < MAX_NEW_HAND_ATTEMPTS; attempt++) {
+      handNumber += 1
+      buttonIndex = scenarioRng.nextInt(NUM_SEATS)
+      const seed = `${baseSeed}-${handNumber}-${scenarioRng.nextU32().toString(36)}`
+      const fresh = createHand({
+        handId: seed,
+        buttonIndex,
+        heroSeat: HERO_SEAT,
+        controllers: CONTROLLERS,
+        seed,
+      })
+      const attemptResult = await drive(fresh, botRng)
+      if (attemptResult.decision) {
+        res = attemptResult
+        break
+      }
+    }
+
+    if (!res) {
+      handNumber += 1
+      buttonIndex = HERO_SEAT // Hero BTN guarantees a preflop decision after bots ahead act.
+      const seed = `${baseSeed}-${handNumber}-${scenarioRng.nextU32().toString(36)}`
+      res = await drive(
+        createHand({
+          handId: seed,
+          buttonIndex,
+          heroSeat: HERO_SEAT,
+          controllers: CONTROLLERS,
+          seed,
+        }),
+        botRng,
+      )
+    }
+
     set({
       handNumber,
       buttonIndex,
       state: res.state,
       decision: res.decision,
       strategy: res.strategy,
-      stats: { ...stats },
       busy: false,
     })
+  },
+
+  revealChart() {
+    set({ chartRevealed: true })
   },
 
   async heroAct(action) {
@@ -151,6 +192,7 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
       lastScore,
       reviewStrategy,
       reviewHand,
+      chartRevealed: false,
       stats: { ...stats },
       busy: false,
     })

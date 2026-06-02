@@ -174,6 +174,14 @@ function clampToLegal(amount: number, legal: LegalAction): number {
   return Math.max(legal.min!, Math.min(legal.max!, Math.round(amount)))
 }
 
+function bbLabel(value: number): string {
+  return Number.isInteger(value) ? `${value}` : value.toFixed(1)
+}
+
+function preflopRaiseCount(state: HandState): number {
+  return state.history.filter((a) => a.street === 'preflop' && a.action.type === 'raise').length
+}
+
 export function sizeOptions(state: HandState): SizeOption[] {
   if (state.toAct === null) return []
   const seat = seatBy(state, state.toAct)
@@ -199,11 +207,22 @@ export function sizeOptions(state: HandState): SizeOption[] {
   const raiseLegal = legal.find((l) => l.type === 'raise')
   if (raiseLegal) {
     if (state.street === 'preflop' && state.betToMatch === bb) {
-      const openBb = seat.position === 'SB' ? tree.preflopSbOpenBb : tree.preflopOpenBb
-      out.push({ label: `${openBb}bb`, amount: clampToLegal(openBb * bb, raiseLegal), kind: 'open' })
+      const openBbs = seat.position === 'SB' ? tree.preflopSbOpenBbs : tree.preflopOpenBbs
+      for (const openBb of openBbs) {
+        out.push({
+          label: `Open ${bbLabel(openBb)}bb`,
+          amount: clampToLegal(openBb * bb, raiseLegal),
+          kind: 'open',
+        })
+      }
     } else if (state.street === 'preflop') {
-      const to = clampToLegal(state.betToMatch * 3, raiseLegal)
-      out.push({ label: `Raise to ${(to / bb).toFixed(1)}bb`, amount: to, kind: 'raise' })
+      const raiseCount = preflopRaiseCount(state)
+      const multipliers = raiseCount >= 2 ? tree.preflopFourBetMultipliers : tree.preflopReraiseMultipliers
+      const label = raiseCount >= 1 ? `${raiseCount + 2}-bet` : 'Raise'
+      for (const multiplier of multipliers) {
+        const to = clampToLegal(state.betToMatch * multiplier, raiseLegal)
+        out.push({ label: `${label} to ${bbLabel(to / bb)}bb`, amount: to, kind: 'raise' })
+      }
     } else {
       const toCall = state.betToMatch - seat.committedThisStreet
       const potRaiseTo = clampToLegal(state.betToMatch + pot + toCall, raiseLegal)

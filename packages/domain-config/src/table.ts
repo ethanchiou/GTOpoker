@@ -27,8 +27,18 @@ export const DEFAULT_TABLE_CONFIG: TableConfig = {
  * is the engine/UI's convenience set for presenting buttons and snapping.
  */
 export interface BetSizeTree {
+  /** Back-compat/default open size for non-SB first-in raises. */
   preflopOpenBb: number
+  /** Back-compat/default SB open size. */
   preflopSbOpenBb: number
+  /** Offered non-SB first-in open sizes. */
+  preflopOpenBbs: number[]
+  /** Offered SB first-in open sizes. */
+  preflopSbOpenBbs: number[]
+  /** Offered preflop 3-bet sizes as multiples of the open raise-to amount. */
+  preflopReraiseMultipliers: number[]
+  /** Offered preflop 4-bet sizes as multiples of the 3-bet raise-to amount. */
+  preflopFourBetMultipliers: number[]
   /** Postflop bet sizes as a fraction of the pot. */
   postflopBetFractions: number[]
 }
@@ -36,6 +46,10 @@ export interface BetSizeTree {
 export const DEFAULT_BET_SIZE_TREE: BetSizeTree = {
   preflopOpenBb: 2.5,
   preflopSbOpenBb: 3,
+  preflopOpenBbs: [2.5, 3, 3.5],
+  preflopSbOpenBbs: [3, 3.5, 4],
+  preflopReraiseMultipliers: [3, 3.5, 4],
+  preflopFourBetMultipliers: [2.2, 2.5, 2.8],
   postflopBetFractions: [0.33, 0.75, 1.25],
 }
 
