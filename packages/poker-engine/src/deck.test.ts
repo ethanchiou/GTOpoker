@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cardFromString, NUM_CARDS, type Card } from './cards'
+import { cardFromString, NUM_CARDS, type Card } from '@gto/hand-eval'
 import { Deck } from './deck'
 
 describe('Deck', () => {

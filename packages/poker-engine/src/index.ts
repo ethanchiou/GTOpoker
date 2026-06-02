@@ -1,5 +1,4 @@
-// @gto/poker-engine — cards, seeded deck/RNG, hand state machine, pots, DecisionPoint.
-// Built across Phase 0 (cards/deck) and Phase 1 (state machine).
-export * from './cards'
-export * from './rng'
+// @gto/poker-engine — seeded deck, hand state machine, pots, DecisionPoint.
+// Built on @gto/hand-eval (cards, RNG, evaluator), which it re-exports for convenience.
+export * from '@gto/hand-eval'
 export * from './deck'
