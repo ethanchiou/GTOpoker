@@ -84,6 +84,7 @@ export interface DecisionPoint {
   potChips: number
   toCallChips: number
   effectiveStackChips: number
+  bigBlindChips: number
   actionHistory: readonly ActionRecord[]
   legalActions: LegalAction[]
   sizeOptions: SizeOption[]
