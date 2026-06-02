@@ -249,6 +249,7 @@ export function decisionPoint(state: HandState): DecisionPoint | null {
     potChips: totalPot(state.seats),
     toCallChips: Math.max(0, state.betToMatch - seat.committedThisStreet),
     effectiveStackChips: effectiveStack(state, seat),
+    bigBlindChips: state.config.bigBlindChips,
     actionHistory: [...state.history],
     legalActions: legalActions(state),
     sizeOptions: sizeOptions(state),
