@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@gto/domain-config": ["packages/domain-config/src/index.ts"],
+      "@gto/hand-eval": ["packages/hand-eval/src/index.ts"],
+      "@gto/poker-engine": ["packages/poker-engine/src/index.ts"],
+      "@gto/strategy": ["packages/strategy/src/index.ts"],
+      "@gto/scoring": ["packages/scoring/src/index.ts"],
+      "@gto/hand-history": ["packages/hand-history/src/index.ts"]
+    }
+  }
+}
