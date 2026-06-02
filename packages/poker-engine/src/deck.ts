@@ -1,5 +1,4 @@
-import { allCards, type Card } from './cards'
-import { createRng, type SeededRng } from './rng'
+import { allCards, type Card, createRng, type SeededRng } from '@gto/hand-eval'
 
 /**
  * A seeded, reproducible deck (spec §5.2). Built from a seed, Fisher-Yates

@@ -1,3 +1,5 @@
-// @gto/hand-eval — 7-card hand evaluation + equity.
-// Implemented in Phase 0 (task: hand-eval wrapper + test vectors).
-export {}
+// @gto/hand-eval — leaf package: card primitives, seeded RNG, hand evaluation, equity.
+export * from './cards'
+export * from './rng'
+export * from './evaluator'
+export * from './equity'
