@@ -1,3 +1,4 @@
-// @gto/scoring — EV-loss, classification, mixed-strategy credit, bet-size grading, aggregation.
-// Built in Phase 1.
-export {}
+// @gto/scoring — grade a decision vs the GTO mix (EV-loss/frequency-credit model),
+// classify it, and aggregate session/lifetime accuracy & leak stats.
+export * from './score'
+export * from './session'
