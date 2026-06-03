@@ -3,8 +3,10 @@ import {
   applyAction,
   createHand,
   decisionPoint,
+  reconstructHandFromLink,
   type Action,
   type DecisionPoint,
+  type HandLink,
   type HandState,
 } from '@gto/poker-engine'
 import { decideGtoAction, handClass, type NodeStrategy } from '@gto/strategy'
@@ -193,6 +195,29 @@ async function buildReplayStrategies(steps: ReplayStep[]): Promise<(ReplayStrate
   return perStep
 }
 
+/**
+ * The hero's last decision in a link's action sequence, paired with the action
+ * taken there — used to re-derive the GTO feedback for a shared finished hand.
+ * The actions are already known legal (reconstruction succeeded), so the walk
+ * never throws.
+ */
+function findLastHeroDecision(link: HandLink): { dp: DecisionPoint; action: Action } | null {
+  let state = createHand({
+    handId: link.seed,
+    seed: link.seed,
+    buttonIndex: link.buttonIndex,
+    heroSeat: HERO_SEAT,
+    controllers: CONTROLLERS,
+  })
+  let result: { dp: DecisionPoint; action: Action } | null = null
+  for (const action of link.actions) {
+    const dp = decisionPoint(state)
+    if (dp && dp.seatIndex === HERO_SEAT) result = { dp, action }
+    state = applyAction(state, action)
+  }
+  return result
+}
+
 export interface PlayStore {
   baseSeed: string
   handNumber: number
@@ -221,6 +246,8 @@ export interface PlayStore {
   /** Hero GTO chart per replay step (null while still being derived). */
   replayStrategies: (ReplayStrategy | null)[] | null
   newHand: () => Promise<void>
+  /** Reconstruct and show a specific hand from a shared link (no session-stat side effects). */
+  loadHandFromLink: (link: HandLink) => Promise<void>
   revealChart: () => void
   setSettings: (patch: Partial<Settings>) => void
   heroAct: (action: Action) => Promise<void>
@@ -312,6 +339,52 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
       strategy: res.strategy,
       busy: false,
     })
+  },
+
+  async loadHandFromLink(link) {
+    set({
+      busy: true,
+      handDone: false,
+      lastScore: null,
+      reviewStrategy: null,
+      reviewHand: null,
+      chartRevealed: false,
+      replaySteps: null,
+      replayIndex: 0,
+      replayStrategies: null,
+    })
+
+    let state: HandState
+    try {
+      state = reconstructHandFromLink(link, { heroSeat: HERO_SEAT, controllers: CONTROLLERS })
+    } catch {
+      // Corrupt or stale link — fall back to a fresh hand.
+      await get().newHand()
+      return
+    }
+
+    const dp = decisionPoint(state)
+    if (state.phase !== 'complete' && dp && dp.seatIndex === HERO_SEAT) {
+      // A pending hero decision: present it as a fresh spot (chart hidden, no
+      // feedback pre-filled for streets the recipient didn't play).
+      const strategy = provider.supports(dp.nodeKey) ? await provider.getStrategy(dp.nodeKey) : null
+      set({ state, decision: dp, strategy, handDone: false, busy: false })
+      return
+    }
+
+    // A finished / folded-out hand: re-derive the last hero decision's GTO
+    // feedback so the review matches live play — but never touch session stats,
+    // since this is someone else's shared hand, not the viewer's own decision.
+    let lastScore: DecisionScore | null = null
+    let reviewStrategy: NodeStrategy | null = null
+    let reviewHand: string | null = null
+    const heroDecision = findLastHeroDecision(link)
+    if (heroDecision && provider.supports(heroDecision.dp.nodeKey)) {
+      reviewStrategy = await provider.getStrategy(heroDecision.dp.nodeKey)
+      lastScore = scoreFromStrategy(heroDecision.action, heroDecision.dp, reviewStrategy)
+      reviewHand = handClass(heroDecision.dp.heroHoleCards[0], heroDecision.dp.heroHoleCards[1])
+    }
+    set({ state, decision: null, strategy: null, handDone: true, lastScore, reviewStrategy, reviewHand, busy: false })
   },
 
   revealChart() {

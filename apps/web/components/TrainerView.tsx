@@ -1,7 +1,8 @@
 'use client'
 
 import { handClass, strategyForCombo, strategyForHand } from '@gto/strategy'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { clearHandLinkFromUrl, copyHandLink, readHandLink } from '../lib/trainerUrl'
 import { ActionControls } from './ActionControls'
 import { FeedbackPanel } from './FeedbackPanel'
 import { HandReviewPanel } from './HandReviewPanel'
@@ -30,6 +31,7 @@ export function TrainerView() {
     replayIndex,
     replayStrategies,
     newHand,
+    loadHandFromLink,
     revealChart,
     heroAct,
     startReplay,
@@ -38,9 +40,30 @@ export function TrainerView() {
     replayStep,
   } = usePlayStore()
 
+  // On first mount, deep-link a shared hand from the URL if present; otherwise
+  // deal a fresh random hand (the normal session start).
   useEffect(() => {
-    if (!state) void newHand()
-  }, [state, newHand])
+    if (state) return
+    const link = readHandLink()
+    if (link) void loadHandFromLink(link)
+    else void newHand()
+  }, [state, newHand, loadHandFromLink])
+
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout>>()
+  useEffect(() => () => clearTimeout(copyTimer.current), [])
+
+  const onCopyLink = async () => {
+    if (!state) return
+    const ok = await copyHandLink({
+      seed: state.handId,
+      buttonIndex: state.buttonIndex,
+      actions: state.history.map((r) => r.action),
+    })
+    setCopied(ok)
+    clearTimeout(copyTimer.current)
+    if (ok) copyTimer.current = setTimeout(() => setCopied(false), 1500)
+  }
 
   const replaying = replaySteps !== null
   const currentReplayStep = replaying ? replaySteps[replayIndex] ?? null : null
@@ -95,18 +118,30 @@ export function TrainerView() {
       <div className="mb-4 flex items-center justify-end gap-2">
         <SettingsMenu />
         {!replaying && (
-          <button
-            className="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
-            disabled={busy || !canReplay}
-            onClick={startReplay}
-          >
-            ↺ Replay hand
-          </button>
+          <>
+            <button
+              className="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+              disabled={busy || !state}
+              onClick={() => void onCopyLink()}
+            >
+              {copied ? 'Copied!' : 'Copy link'}
+            </button>
+            <button
+              className="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+              disabled={busy || !canReplay}
+              onClick={startReplay}
+            >
+              ↺ Replay hand
+            </button>
+          </>
         )}
         <button
           className="rounded-md bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-amber-300 disabled:opacity-40"
           disabled={busy || (!handDone && heroTurn)}
-          onClick={() => void newHand()}
+          onClick={() => {
+            clearHandLinkFromUrl()
+            void newHand()
+          }}
         >
           {handDone ? 'Next hand →' : 'New hand'}
         </button>

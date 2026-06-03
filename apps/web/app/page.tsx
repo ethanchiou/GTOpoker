@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { LiveSolver } from '../components/LiveSolver'
 import { TrainerView } from '../components/TrainerView'
 import { liveSpotPresent } from '../lib/liveSolverUrl'
+import { handLinkPresent } from '../lib/trainerUrl'
 
 type Tab = 'trainer' | 'live'
 
@@ -15,11 +16,13 @@ const TABS: { id: Tab; label: string }[] = [
 export default function Home() {
   const [tab, setTab] = useState<Tab>('trainer')
 
-  // A shared link carries a Live Solver spot in its query string; open that tab.
+  // A shared link carries either a trainer hand or a Live Solver spot in its query
+  // string; open the matching tab. A trainer hand wins if both are somehow present.
   // Done post-mount (not in the initial state) so the first client render matches
   // the static-export HTML and the Live Solver mounts client-only.
   useEffect(() => {
-    if (liveSpotPresent()) setTab('live')
+    if (handLinkPresent()) setTab('trainer')
+    else if (liveSpotPresent()) setTab('live')
   }, [])
 
   return (
