@@ -26,8 +26,9 @@ import {
   type PreflopAggressor,
   type StrategyRowAnalysis,
 } from '@gto/strategy'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { actionLabel, bb } from '../lib/format'
+import { holeFromCards, readDecodedSpot, writeSpotToUrl } from '../lib/liveSolverUrl'
 import { postflopProvider, strategyProvider } from '../lib/strategyProvider'
 import { ActionRandomizer } from './ActionRandomizer'
 import { BoardPicker } from './BoardPicker'
@@ -68,25 +69,95 @@ interface Equity {
   equity: number | null
 }
 
+/** Initial inputs, seeded from a shared-link URL spot (postflop mode) when present. */
+function initialInputs() {
+  const spot = readDecodedSpot()
+  const s = spot?.mode === 'postflop' ? spot : null
+  return {
+    street: s?.street ?? ('flop' as PostflopStreet),
+    hero: s?.hero ?? ('BB' as Position),
+    villain: s?.villain ?? ('BTN' as Position),
+    potType: s?.potType ?? ('srp' as PostflopPotType),
+    aggressor: s?.aggressor ?? ('villain' as PreflopAggressor),
+    board: (s?.board ?? []) as (Card | null)[],
+    cards: holeFromCards(s?.cards),
+    linePreset: s?.linePreset ?? ('manual' as PostflopActionLinePreset),
+    potBb: s?.potBb ?? 5.5,
+    facing: s?.facing ?? false,
+    villainBetBb: s?.villainBetBb ?? 3,
+    heroFirstBetBb: s?.heroFirstBetBb ?? 3,
+    villainRaiseBb: s?.villainRaiseBb ?? 9,
+    heroBetChips: s?.heroBetChips ?? 400,
+    potSeeded: s?.potBb !== undefined,
+    betSeeded: s?.heroBetChips !== undefined,
+  }
+}
+
 export function LiveSolverPostflop() {
-  const [street, setStreet] = useState<PostflopStreet>('flop')
-  const [hero, setHero] = useState<Position>('BB')
-  const [villain, setVillain] = useState<Position>('BTN')
-  const [potType, setPotType] = useState<PostflopPotType>('srp')
-  const [aggressor, setAggressor] = useState<PreflopAggressor>('villain')
-  const [board, setBoard] = useState<(Card | null)[]>([])
-  const [cards, setCards] = useState<HoleCards>([null, null])
-  const [linePreset, setLinePreset] = useState<PostflopActionLinePreset>('manual')
-  const [potBb, setPotBb] = useState(5.5)
-  const [facing, setFacing] = useState(false)
-  const [villainBetBb, setVillainBetBb] = useState(3)
-  const [heroFirstBetBb, setHeroFirstBetBb] = useState(3)
-  const [villainRaiseBb, setVillainRaiseBb] = useState(9)
-  const [heroBetChips, setHeroBetChips] = useState(400)
+  const seed = useMemo(initialInputs, [])
+  const [street, setStreet] = useState<PostflopStreet>(seed.street)
+  const [hero, setHero] = useState<Position>(seed.hero)
+  const [villain, setVillain] = useState<Position>(seed.villain)
+  const [potType, setPotType] = useState<PostflopPotType>(seed.potType)
+  const [aggressor, setAggressor] = useState<PreflopAggressor>(seed.aggressor)
+  const [board, setBoard] = useState<(Card | null)[]>(seed.board)
+  const [cards, setCards] = useState<HoleCards>(seed.cards)
+  const [linePreset, setLinePreset] = useState<PostflopActionLinePreset>(seed.linePreset)
+  const [potBb, setPotBb] = useState(seed.potBb)
+  const [facing, setFacing] = useState(seed.facing)
+  const [villainBetBb, setVillainBetBb] = useState(seed.villainBetBb)
+  const [heroFirstBetBb, setHeroFirstBetBb] = useState(seed.heroFirstBetBb)
+  const [villainRaiseBb, setVillainRaiseBb] = useState(seed.villainRaiseBb)
+  const [heroBetChips, setHeroBetChips] = useState(seed.heroBetChips)
 
   const [equity, setEquity] = useState<Equity | null>(null)
   const [strategy, setStrategy] = useState<NodeStrategy | null>(null)
   const [solving, setSolving] = useState(false)
+
+  // Whether the pot / preview-bet were seeded from a shared link. Both are reset
+  // to computed defaults by effects below; when seeded we keep the URL value on
+  // the first run so a shared spot reproduces exactly (see the guarded effects).
+  const potSeeded = useRef(seed.potSeeded)
+  const betSeeded = useRef(seed.betSeeded)
+  const potStructRef = useRef<string | null>(null)
+  const betNodeRef = useRef<string | null>(null)
+
+  // Mirror the inputs into the URL so the spot is shareable. `heroBetChips` is the
+  // raw slider state (the displayed value is clamped to the node) and round-trips.
+  useEffect(() => {
+    writeSpotToUrl({
+      mode: 'postflop',
+      street,
+      hero,
+      villain,
+      potType,
+      aggressor,
+      board: board.filter((c): c is Card => c !== null),
+      cards: cards.filter((c): c is Card => c !== null),
+      linePreset,
+      potBb,
+      facing,
+      villainBetBb,
+      heroFirstBetBb,
+      villainRaiseBb,
+      heroBetChips,
+    })
+  }, [
+    street,
+    hero,
+    villain,
+    potType,
+    aggressor,
+    board,
+    cards,
+    linePreset,
+    potBb,
+    facing,
+    villainBetBb,
+    heroFirstBetBb,
+    villainRaiseBb,
+    heroBetChips,
+  ])
 
   const boardLen = POSTFLOP_BOARD_LEN[street]
   const boardCards = board.slice(0, boardLen).filter((c): c is Card => c !== null)
@@ -116,6 +187,11 @@ export function LiveSolverPostflop() {
     [hero, villain, potType, aggressor, positionsOk],
   )
   useEffect(() => {
+    const key = `${flopPotChips}|${linePreset}`
+    if (potStructRef.current === key) return // no real change (also no-ops strict-mode double-invoke)
+    const first = potStructRef.current === null
+    potStructRef.current = key
+    if (first && potSeeded.current) return // keep the URL-seeded pot on first mount
     if (flopPotChips > 0) setPotBb(defaultPotBeforeLine(linePreset, flopPotChips) / BB_CHIPS)
   }, [flopPotChips, linePreset])
 
@@ -198,6 +274,10 @@ export function LiveSolverPostflop() {
     : ''
   useEffect(() => {
     if (!node) return
+    if (betNodeRef.current === nodeKey) return // no real change (also no-ops strict-mode double-invoke)
+    const first = betNodeRef.current === null
+    betNodeRef.current = nodeKey
+    if (first && betSeeded.current) return // keep the URL-seeded preview bet on first mount
     const postCallPot = (node.potChips ?? 0) + (node.toCallChips ?? 0)
     const def = facingBet
       ? clamp(roundChips(villainCommittedChips + 0.75 * postCallPot), heroBetMin, heroBetMax)
