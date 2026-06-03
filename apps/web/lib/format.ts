@@ -1,3 +1,4 @@
+import type { Action } from '@gto/poker-engine'
 import { rankOf, suitOf, type Card } from '@gto/hand-eval'
 
 const SUIT_SYMBOL = ['♣', '♦', '♥', '♠']
@@ -18,6 +19,22 @@ export function cardFace(card: Card): CardFace {
 export function bb(chips: number, bigBlindChips: number): string {
   const v = chips / bigBlindChips
   return Number.isInteger(v) ? `${v}` : v.toFixed(1)
+}
+
+/** Short label for a played action ("Folds", "Calls 2.5bb", "Raises to 9.5bb"). */
+export function actionShort(action: Action, bigBlindChips: number): string {
+  switch (action.type) {
+    case 'fold':
+      return 'Folds'
+    case 'check':
+      return 'Checks'
+    case 'call':
+      return action.amount ? `Calls ${bb(action.amount, bigBlindChips)}bb` : 'Calls'
+    case 'bet':
+      return `Bets ${bb(action.amount ?? 0, bigBlindChips)}bb`
+    case 'raise':
+      return `Raises to ${bb(action.amount ?? 0, bigBlindChips)}bb`
+  }
 }
 
 const ACTION_LABELS: Record<string, string> = {

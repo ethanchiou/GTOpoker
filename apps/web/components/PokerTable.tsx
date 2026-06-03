@@ -1,5 +1,5 @@
-import type { HandState } from '@gto/poker-engine'
-import { bb } from '../lib/format'
+import type { ActionRecord, HandState } from '@gto/poker-engine'
+import { actionShort, bb } from '../lib/format'
 import { CardView } from './CardView'
 import { SeatView } from './SeatView'
 
@@ -13,7 +13,16 @@ const SLOTS: Array<{ x: number; y: number }> = [
   { x: 88, y: 66 }, // lower-right
 ]
 
-export function PokerTable({ state, heroSeat }: { state: HandState; heroSeat: number }) {
+export function PokerTable({
+  state,
+  heroSeat,
+  lastAction,
+}: {
+  state: HandState
+  heroSeat: number
+  /** The most recent action, marked on the table with a "last move" arrow. */
+  lastAction?: ActionRecord | null
+}) {
   const n = state.seats.length
   const complete = state.phase === 'complete'
   const pot = state.seats.reduce((s, x) => s + x.committedTotal, 0)
@@ -54,6 +63,11 @@ export function PokerTable({ state, heroSeat }: { state: HandState; heroSeat: nu
               isButton={seat.seatIndex === state.buttonIndex}
               isToAct={state.toAct === seat.seatIndex}
               bigBlindChips={state.config.bigBlindChips}
+              lastActionLabel={
+                lastAction && lastAction.seatIndex === seat.seatIndex
+                  ? actionShort(lastAction.action, state.config.bigBlindChips)
+                  : undefined
+              }
             />
           </div>
         )

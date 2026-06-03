@@ -26,6 +26,12 @@ export function StrategyMix({
             <span className="w-10 shrink-0 text-right font-mono text-slate-300">
               {(a.frequency * 100).toFixed(0)}%
             </span>
+            {a.ev !== undefined && (
+              <span className="w-16 shrink-0 text-right font-mono text-slate-400">
+                {a.ev >= 0 ? '+' : ''}
+                {a.ev.toFixed(2)}bb
+              </span>
+            )}
           </div>
         ))}
       </div>

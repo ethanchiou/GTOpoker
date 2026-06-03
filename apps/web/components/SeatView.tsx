@@ -8,16 +8,24 @@ export function SeatView({
   isButton,
   isToAct,
   bigBlindChips,
+  lastActionLabel,
 }: {
   seat: SeatState
   reveal: boolean
   isButton: boolean
   isToAct: boolean
   bigBlindChips: number
+  /** When set, this seat made the most recent action (shown as a chip). */
+  lastActionLabel?: string
 }) {
   const folded = seat.status === 'folded'
   return (
     <div className={`flex flex-col items-center gap-1 ${folded ? 'opacity-40' : ''}`}>
+      {lastActionLabel && (
+        <div className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-slate-950 shadow">
+          {lastActionLabel}
+        </div>
+      )}
       <div className="flex gap-1">
         <CardView card={seat.holeCards[0]} hidden={!reveal} size="sm" />
         <CardView card={seat.holeCards[1]} hidden={!reveal} size="sm" />
