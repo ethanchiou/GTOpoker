@@ -2,9 +2,10 @@
 
 > Working handoff for the next engineer/agent. Pairs with [`spec.md`](./spec.md)
 > (full design), [`README.md`](./README.md) (overview), and [`TODO.md`](./TODO.md)
-> (running task log). Last updated: 2026-06-03 — shareable Live Solver spots is
-> shipped and browser-QA'd. **Immediate next task:** task 4, the real WASM
-> solver; see §2.1 below. Remaining tasks 4-7 are tracked there and in `TODO.md`.
+> (running task log). Last updated: 2026-06-03 — shareable spots (Live Solver +
+> trainer hands) are shipped and browser-QA'd. **Immediate next task:** task 4,
+> the real WASM solver; see §2.1 below. Remaining tasks 4-7 are tracked there and
+> in `TODO.md`.
 
 ## 1. What this is
 
@@ -74,10 +75,30 @@ regression fixture:
   `components/LiveSolver.tsx` (copies `window.location.href`; the URL is always in
   sync with the inputs).
 
-Verified with `pnpm run check` (185 tests incl. 10 new codec tests), `apps/web`
-tsc + `next build`, and headless Chrome end-to-end: preflop + postflop deep-links
-restore exactly (incl. `pot=12bb` / preview `bet=9bb`, the effect-managed values),
-URLs round-trip, and there are no console or hydration errors.
+The same copy/paste was then extended to the **trainer**, adapted to its seeded
+engine (a hand reconstructs from seed + button + action history — `buildReplaySteps`
+already relied on this):
+
+- **Codec (CI-tested, pure):** `packages/poker-engine/src/hand-link.ts` +
+  `hand-link.test.ts`. `encode/decodeHandLink` ⇄ `?hand=<seed>&btn=<n>&a=<actions>`
+  (actions like `r250.c.x.b150.f`); `reconstructHandFromLink` re-deals from the seed
+  and replays the actions. A round-trip test asserts reconstruct === the live hand.
+- **Web glue:** `apps/web/lib/trainerUrl.ts` (`readHandLink`, `handLinkPresent`,
+  `copyHandLink`, `clearHandLinkFromUrl`). Store gained `loadHandFromLink`
+  (`lib/store.ts`): a pending hero decision restores as a fresh spot (chart hidden);
+  a finished/folded hand restores with the last decision's GTO feedback re-derived,
+  **without** recording into session stats. Corrupt/illegal links fall back to a
+  fresh hand. `TrainerView.tsx` deep-links on mount and has a **Copy link** button.
+- **Deliberately NOT address-bar-synced** (clipboard-only) so a normal refresh still
+  deals a fresh random hand; **New hand** clears any stale `?hand=` param. `page.tsx`
+  routes a `?hand=` link to the trainer tab, a `?m=` link to the Live Solver.
+
+Verified with `pnpm run check` (193 tests incl. the new codecs), `apps/web` tsc +
+`next build`, and headless Chrome end-to-end for both features: Live Solver preflop +
+postflop deep-links restore exactly (incl. `pot=12bb` / preview `bet=9bb`); trainer
+decision spots and folded hands restore exactly with feedback re-derived, session
+stats stay clean, a clean refresh still randomizes, and there are no console or
+hydration errors.
 
 Remaining next tasks:
 4. **Real WASM solver:** build the postflop-solver WASM artifact
