@@ -11,6 +11,7 @@ import {
 } from '@gto/poker-engine'
 import { decideGtoAction, handClass, type NodeStrategy } from '@gto/strategy'
 import { strategyProvider as provider } from './strategyProvider'
+import { recordHandSimulated } from './analytics'
 import { buildReplaySteps, type ReplayStep } from './replay'
 import {
   createSessionStats,
@@ -339,6 +340,8 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
       strategy: res.strategy,
       busy: false,
     })
+
+    recordHandSimulated('trainer')
   },
 
   async loadHandFromLink(link) {
