@@ -385,6 +385,58 @@ tree, stack/pot) and sends it through the injected `SolverTransport` to the work
   - **Constrain the bet-size tree** (fewer sizes ⇒ dramatically faster/smaller solves); start with
     2–3 sizes.
 
+### 6.5 Solver transport: baseline vs. WASM (the swap tradeoffs)
+
+The `SolverTransport` seam has two implementations. The app ships the
+**`BaselineSolverTransport`** by default; the real
+**`WasmSolverTransport`** (a CFR solve via the `postflop-solver` crate compiled to
+WASM, run in a Web Worker) is a drop-in behind the *same* interface. This section
+captures the decision to keep baseline as the default and what flipping to WASM
+buys and costs, so the choice is recorded rather than re-derived. The mechanics of
+building and switching live in [`packages/solver-worker/BUILD.md`](packages/solver-worker/BUILD.md);
+the current-state caveat is in `HANDOFF.md` §2.
+
+**What the swap buys (benefits):**
+
+- **True Nash-equilibrium frequencies + per-action EV**, not one-shot estimates.
+  The baseline is an equity-driven approximation; WASM produces real equilibrium
+  strategy and `ev` on every `ActionFrequency`.
+- **It fixes the baseline's documented limits**, all of which are structural to a
+  one-shot equity model: a single street of action (no future-street range
+  narrowing or implied odds), one representative combo per hand-class (no blockers
+  or suit specificity), coarse size-based fold equity, and a softmax mix whose
+  temperature is a hand-tuned heuristic.
+- **Scoring and the whole UI sharpen automatically.** The scorer, the strategy
+  grid + cell tooltip, the replay-evolution chart, and the new Live-Solver / trainer
+  **win% · EV · pot-odds** stats all read the same `SolveResult`. Better EVs ⇒
+  better grades and clearer mixes with **zero consumer changes**: the
+  `PostflopSolverProvider`, `aggregateToGrid`, the scoring engine, and every
+  component stay byte-for-byte the same because the `SolverTransport` contract is
+  unchanged.
+
+**What it costs (tradeoffs):**
+
+- **License:** `postflop-solver` is **AGPL-3.0** (strong copyleft). It is in-process
+  WASM, but distributing/hosting the app with it has obligations — **flag this before
+  any public deploy.** The baseline carries no such constraint.
+- **Bundle / first load:** a multi-MB `.wasm` artifact must download and instantiate
+  before the first solve.
+- **Compute:** each solve is real CFR work. This is why it runs **off the main thread
+  in a Web Worker**, and why the deferred **pre-solve-on-flop + progress/abort**
+  budget (spec §6.4) matters far more for WASM than for the cheap baseline.
+- **Unverified scaffold:** `packages/solver-worker/src/lib.rs` was written against the
+  documented crate API but **never compiled in this environment** — expect to resolve
+  the `VERIFY:` markers and a known **facing-a-bet node-navigation TODO** (it currently
+  reads the root node). The build needs `rustup` + `wasm-pack` and is **not in CI**.
+
+**Why baseline stays the default for now:** zero build step, in-process,
+deterministic (seeded), and fast enough for dev/CI and a responsive pre-solve. It is
+clearly labeled **"Approximate baseline solver"** in the UI so its EVs are never
+mistaken for a true CFR solve, and it remains the automatic fallback after the swap.
+The net: the swap is a **transport-only change** that upgrades correctness everywhere
+at once, gated mainly on the Rust build, the AGPL decision, and the off-thread
+compute budget.
+
 ---
 
 ## 7. Scoring Engine (`scoring`)

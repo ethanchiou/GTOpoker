@@ -9,14 +9,20 @@ correct **mixed-strategy frequencies**.
 
 ## Status
 
-Early development. **v1 = preflop-first MVP** (see `spec.md` §2.2 and the phased roadmap §16).
+Early development. Preflop MVP is complete; **Phase 2 (heads-up postflop) is wired end-to-end**:
+the play loop trains flop/turn/river decisions with real per-action EV via the `SolverTransport`
+seam and the preflop→flop range handoff (see `spec.md` §16, Phase 2).
+
+By default the postflop EVs come from an in-process, clearly-labeled **baseline transport** (an
+equity-driven approximation, not true GTO). The real **postflop-solver** is wired as a drop-in:
+build its WASM artifact (`packages/solver-worker/BUILD.md`) and flip the web transport to get true
+CFR equilibrium EVs with zero changes to any consumer.
 
 ## Next Product Step
 
-Progress beyond the preflop MVP: train flop, turn, and river decisions instead of immediately
-running postflop to showdown. Board cards should continue to come from the shuffled deck each hand
-so flop/turn/river runouts are random, while bot actions should remain hand-aware through the
-strategy provider so weak holdings do not take aggressive sizes at unrealistic frequencies.
+Build the postflop-solver WASM artifact and switch the web app from the baseline transport to the
+WASM transport, then validate the range-handoff and solver outputs against the WASM Postflop
+reference (`spec.md` §15, Phase 2).
 
 ## Architecture (one-liner)
 
@@ -30,11 +36,15 @@ packages/
   domain-config   constants: positions, bet-size trees, rake profiles, scoring thresholds
   hand-eval       7-card evaluator + equity (permissive lib wrapper)
   poker-engine    cards, seeded deck/RNG, hand state machine, pots, DecisionPoint
-  strategy        StrategyProvider, GameNodeKey, PreflopChartProvider, range/grid math
+  strategy        StrategyProvider, GameNodeKey, PreflopChartProvider, range/grid math,
+                  SolverTransport + preflop→flop range handoff + PostflopSolverProvider
+                  + an equity-based baseline transport
   scoring         EV-loss, classification, mixed-strategy credit, bet-size grading
   hand-history    internal records, PokerStars import/export, replay
-data/preflop-charts   seeded 6-max preflop range JSON (versioned, rake-tagged)
-apps/web              Next.js client (added in Phase 1)
+  solver-worker   Rust→WASM glue crate around postflop-solver (built separately; see BUILD.md)
+data/preflop-charts   6-max preflop range JSON (versioned, rake-tagged, CI-validated)
+apps/web              Next.js client (table, controls, feedback, heatmap, stats;
+                      Web Worker WASM transport scaffold under lib/solver/)
 ```
 
 ## Develop
