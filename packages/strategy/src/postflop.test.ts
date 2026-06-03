@@ -1,15 +1,18 @@
-import { makeCard, type Card } from '@gto/hand-eval'
+import { cardFromString, makeCard, type Card } from '@gto/hand-eval'
 import { applyActions, createHand, decisionPoint, type ActionRecord } from '@gto/poker-engine'
 import { describe, expect, it } from 'vitest'
 import { BaselineSolverTransport } from './baseline-transport'
 import { handClass, type HandClass } from './hand-class'
 import { PostflopSolverProvider } from './postflop-provider'
-import type { Range } from './postflop-types'
+import type { Range, SolveRequest, SolveResult, SolverTransport } from './postflop-types'
 import { PreflopChartProvider } from './preflop-chart'
 import { buildPreflopRange, inHandPositions } from './range-handoff'
 import { SEED_CHART } from './seed-chart'
 
 const preflop = new PreflopChartProvider(SEED_CHART)
+
+const c = cardFromString
+const combo = (a: string, b: string): [Card, Card] => [c(a), c(b)]
 
 /** Collapse a combo range to a class→weight map (combos in a class share weight). */
 function classWeights(range: Range): Map<HandClass, number> {
@@ -73,6 +76,13 @@ describe('preflop→flop range handoff', () => {
 })
 
 describe('BaselineSolverTransport', () => {
+  const raiseFreq = (row: { actionId: string; frequency: number }[]) =>
+    row
+      .filter((a) => a.actionId === 'allIn' || a.actionId.startsWith('raiseTo:'))
+      .reduce((s, a) => s + a.frequency, 0)
+  const freq = (row: { actionId: string; frequency: number }[], actionId: string) =>
+    row.find((a) => a.actionId === actionId)?.frequency ?? 0
+
   it('produces a valid per-combo strategy with EV on every action', async () => {
     const transport = new BaselineSolverTransport({ iterations: 200 })
     const board: Card[] = [makeCard(12, 3), makeCard(12, 2), makeCard(0, 0)] // As Ah 2c
@@ -144,6 +154,74 @@ describe('BaselineSolverTransport', () => {
     // High SPR → no flop jam.
     expect(row.some((a) => a.actionId === 'allIn')).toBe(false)
   })
+
+  it('polarizes river facing-bet ranges into value raises, bluff-catches, and folds', async () => {
+    const transport = new BaselineSolverTransport({ iterations: 300 })
+    const res = await transport.solve({
+      board: [c('As'), c('Kh'), c('7d'), c('2c'), c('9s')],
+      heroRange: [
+        { hand: combo('Ah', 'Ad'), weight: 1 }, // top value
+        { hand: combo('Ac', 'Qd'), weight: 1 }, // medium showdown value
+        { hand: combo('5c', '4c'), weight: 1 }, // air
+      ],
+      villainRange: [
+        { hand: combo('Kc', 'Kd'), weight: 1 },
+        { hand: combo('Ac', 'Ks'), weight: 1 },
+        { hand: combo('Qh', 'Jh'), weight: 1 },
+        { hand: combo('8c', '8d'), weight: 1 },
+        { hand: combo('Tc', '9c'), weight: 1 },
+      ],
+      potChips: 2_000,
+      effectiveStackChips: 8_000,
+      bigBlindChips: 100,
+      toCallChips: 1_200,
+      heroCommittedThisStreetChips: 0,
+      villainCommittedThisStreetChips: 1_200,
+      minRaiseToChips: 2_400,
+      betFractions: [0.5, 1, 1.5],
+    })
+
+    const [value, bluffCatch, air] = res.hero.map((h) => h.actions)
+    expect(raiseFreq(value!)).toBeGreaterThan(0.75)
+    expect(freq(value!, 'raiseTo:60')).toBeGreaterThan(freq(value!, 'raiseTo:44'))
+    expect(freq(bluffCatch!, 'call')).toBeGreaterThan(0.7)
+    expect(raiseFreq(bluffCatch!)).toBeLessThan(0.2)
+    expect(freq(air!, 'fold')).toBeGreaterThan(0.9)
+  })
+
+  it('keeps turn raises for strong value and selected draws while folding no-equity hands', async () => {
+    const transport = new BaselineSolverTransport({ iterations: 300 })
+    const res = await transport.solve({
+      board: [c('Qs'), c('Js'), c('4d'), c('2c')],
+      heroRange: [
+        { hand: combo('As', 'Ts'), weight: 1 }, // nut-flush draw + overcard/gutshot texture
+        { hand: combo('Qh', 'Qd'), weight: 1 }, // set
+        { hand: combo('8c', '7d'), weight: 1 }, // air
+      ],
+      villainRange: [
+        { hand: combo('Ah', 'Qd'), weight: 1 },
+        { hand: combo('Kd', 'Kc'), weight: 1 },
+        { hand: combo('9s', '8s'), weight: 1 },
+        { hand: combo('Ac', '5c'), weight: 1 },
+        { hand: combo('6h', '6d'), weight: 1 },
+      ],
+      potChips: 1_200,
+      effectiveStackChips: 7_600,
+      bigBlindChips: 100,
+      toCallChips: 600,
+      heroCommittedThisStreetChips: 0,
+      villainCommittedThisStreetChips: 600,
+      minRaiseToChips: 1_200,
+      betFractions: [0.5, 0.75, 1.25],
+    })
+
+    const [draw, set, air] = res.hero.map((h) => h.actions)
+    expect(raiseFreq(set!)).toBeGreaterThan(0.6)
+    expect(raiseFreq(draw!)).toBeGreaterThan(0.03)
+    expect(freq(draw!, 'call')).toBeGreaterThan(0.75)
+    expect(freq(air!, 'fold')).toBeGreaterThan(0.85)
+    expect(set!.map((a) => a.actionId)).toEqual(expect.arrayContaining(['raiseTo:15', 'raiseTo:19.5', 'raiseTo:28.5']))
+  })
 })
 
 describe('PostflopSolverProvider', () => {
@@ -189,5 +267,47 @@ describe('PostflopSolverProvider', () => {
       expect(row.reduce((s, a) => s + a.frequency, 0)).toBeCloseTo(1, 1)
       for (const a of row) expect(a.ev).toBeTypeOf('number')
     }
+  })
+
+  it('passes per-street sizing and current-street raise context to the transport', async () => {
+    class CaptureTransport implements SolverTransport {
+      requests: SolveRequest[] = []
+
+      async solve(req: SolveRequest): Promise<SolveResult> {
+        this.requests.push(req)
+        return {
+          hero: req.heroRange.map(({ hand }) => ({
+            hand,
+            actions: [{ actionId: 'fold', frequency: 1, ev: 0 }],
+          })),
+          meta: { confidence: 'low', approximate: true, label: 'capture' },
+        }
+      }
+    }
+
+    const transport = new CaptureTransport()
+    const provider = new PostflopSolverProvider(transport, preflop)
+    await provider.getStrategy({
+      street: 'turn',
+      heroPosition: 'BB',
+      board: [c('As'), c('Kh'), c('7d'), c('2c')],
+      history: [
+        ...BTN_VS_BB_HISTORY,
+        { seatIndex: 2, position: 'BB', street: 'flop', action: { type: 'check' } },
+        { seatIndex: 0, position: 'BTN', street: 'flop', action: { type: 'check' } },
+        { seatIndex: 2, position: 'BB', street: 'turn', action: { type: 'check' } },
+        { seatIndex: 0, position: 'BTN', street: 'turn', action: { type: 'bet', amount: 500 } },
+      ],
+      potChips: 1_100,
+      effectiveStackChips: 9_000,
+      toCallChips: 500,
+      bigBlindChips: 100,
+    })
+
+    expect(transport.requests).toHaveLength(1)
+    expect(transport.requests[0]!.betFractions).toEqual([0.5, 0.75, 1.25])
+    expect(transport.requests[0]!.heroCommittedThisStreetChips).toBe(0)
+    expect(transport.requests[0]!.villainCommittedThisStreetChips).toBe(500)
+    expect(transport.requests[0]!.minRaiseToChips).toBe(1_000)
   })
 })

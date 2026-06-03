@@ -32,6 +32,12 @@ export interface SolveRequest {
   effectiveStackChips: number
   bigBlindChips: number
   toCallChips: number
+  /** Hero's current commitment on this betting street before acting. */
+  heroCommittedThisStreetChips?: number
+  /** Villain's current commitment on this betting street before hero acts. */
+  villainCommittedThisStreetChips?: number
+  /** Minimum legal bet/raise-to amount for the aggressive option, when known. */
+  minRaiseToChips?: number
   /** Postflop bet/raise sizes as a fraction of the pot (e.g. 0.33, 0.75). */
   betFractions: readonly number[]
   /**

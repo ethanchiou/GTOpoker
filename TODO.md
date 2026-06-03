@@ -23,9 +23,11 @@
 - **Live Solver in-page tab** (preflop MVP): `Trainer | Live Solver` switcher; pick seat + action line (RFI / facing-raise / facing-3bet) + two hole cards → action mix, GTO sizing, pot odds, win%, full 13×13 grid, and a transparent "Pick for us" Roll dial that samples the GTO frequencies. Trainer markup extracted to `TrainerView`; shared provider in `lib/strategyProvider.ts`. A preflop `GameNodeKey` is fabricated without playing a hand (`buildPreflopLineNode`).
 - **Win% / EV / pot-odds stat strip on the trainer decision view** (`DecisionStats` + shared `StatStrip`): pot odds (arithmetic), chances-to-win (hero vs the villain continuing range via Monte-Carlo `equityVsRange` + `villainContinuingRange`), and per-action EV (postflop solver only; preflop "—").
 - Documented the baseline→WASM `SolverTransport` swap tradeoffs in `spec.md` §6.5 (benefits, costs incl. AGPL-3.0 + unverified `lib.rs`, why baseline stays default).
+- **Live Solver postflop richer action lines:** the fabricated postflop node builder/UI now supports typed action-line presets for flop check-check → turn, flop bet-call → turn, turn bet-call → river, hero bet facing raise, villain donk bets, delayed c-bets, and probe nodes. The builder derives current-street commitments, to-call, min-raise, effective stack, and exact-size preview fractions for the shared postflop solver path.
 
 ## Next
 
+- Live Solver postflop follow-ups: browser-QA the full postflop flow, add street-size preset buttons beside the exact-size slider, show best action / best size / EV delta versus the slider size, add range-grid filters for value/bluff/check-call/fold hands, persist/share spots via URL params, then prioritize the real WASM solver for true CFR accuracy.
 - Build the postflop-solver WASM artifact (`packages/solver-worker/BUILD.md`) and switch the web transport from baseline to WASM for true CFR EVs.
 - Validate range-handoff + solver outputs against the WASM Postflop reference (spec §15 Phase 2).
 - Replace the hand-authored ranges with solved/licensed preflop GTO data (swap the JSON, bump version/confidence).

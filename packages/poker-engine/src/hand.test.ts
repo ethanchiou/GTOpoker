@@ -119,6 +119,49 @@ describe('action legality', () => {
     ])
     expect(dp.sizeOptions.map((o) => o.amount)).toEqual([2420, 2750, 3080, START])
   })
+
+  it('offers street-specific postflop bet sizes', () => {
+    let s = applyActions(fresh(), [
+      { type: 'raise', amount: 250 },
+      { type: 'fold' },
+      { type: 'fold' },
+      { type: 'fold' },
+      { type: 'fold' },
+      { type: 'call' },
+    ])
+
+    let dp = decisionPoint(s)!
+    expect(dp.street).toBe('flop')
+    expect(dp.sizeOptions.map((o) => o.label)).toEqual(['25% pot', '50% pot', '75% pot', 'All-in'])
+
+    s = applyActions(s, [{ type: 'check' }, { type: 'check' }])
+    dp = decisionPoint(s)!
+    expect(dp.street).toBe('turn')
+    expect(dp.sizeOptions.map((o) => o.label)).toEqual(['50% pot', '75% pot', '125% pot', 'All-in'])
+
+    s = applyActions(s, [{ type: 'check' }, { type: 'check' }])
+    dp = decisionPoint(s)!
+    expect(dp.street).toBe('river')
+    expect(dp.sizeOptions.map((o) => o.label)).toEqual(['50% pot', '100% pot', '150% pot', 'All-in'])
+  })
+
+  it('offers postflop raise sizes from the same street-specific tree', () => {
+    const s = applyActions(fresh(), [
+      { type: 'raise', amount: 250 },
+      { type: 'fold' },
+      { type: 'fold' },
+      { type: 'fold' },
+      { type: 'fold' },
+      { type: 'call' },
+      { type: 'check' },
+      { type: 'bet', amount: 300 },
+    ])
+    const dp = decisionPoint(s)!
+    expect(dp.street).toBe('flop')
+    expect(dp.legalActions.map((a) => a.type)).toEqual(['fold', 'call', 'raise'])
+    expect(dp.sizeOptions.map((o) => o.label)).toEqual(['Raise 25% pot', 'Raise 50% pot', 'Raise 75% pot', 'All-in'])
+    expect(dp.sizeOptions.map((o) => o.amount)).toEqual([600, 875, 1163, START - 250])
+  })
 })
 
 describe('runToShowdown', () => {

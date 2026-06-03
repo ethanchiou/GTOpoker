@@ -182,6 +182,13 @@ function preflopRaiseCount(state: HandState): number {
   return state.history.filter((a) => a.street === 'preflop' && a.action.type === 'raise').length
 }
 
+function postflopBetFractions(state: HandState, tree: BetSizeTree): number[] {
+  if (state.street === 'flop' || state.street === 'turn' || state.street === 'river') {
+    return tree.postflopBetFractionsByStreet[state.street]
+  }
+  return tree.postflopBetFractions
+}
+
 export function sizeOptions(state: HandState): SizeOption[] {
   if (state.toAct === null) return []
   const seat = seatBy(state, state.toAct)
@@ -194,7 +201,7 @@ export function sizeOptions(state: HandState): SizeOption[] {
 
   const betLegal = legal.find((l) => l.type === 'bet')
   if (betLegal) {
-    for (const frac of tree.postflopBetFractions) {
+    for (const frac of postflopBetFractions(state, tree)) {
       out.push({
         label: `${Math.round(frac * 100)}% pot`,
         amount: clampToLegal(frac * pot, betLegal),
@@ -225,8 +232,10 @@ export function sizeOptions(state: HandState): SizeOption[] {
       }
     } else {
       const toCall = state.betToMatch - seat.committedThisStreet
-      const potRaiseTo = clampToLegal(state.betToMatch + pot + toCall, raiseLegal)
-      out.push({ label: 'Pot', amount: potRaiseTo, kind: 'raise' })
+      for (const frac of postflopBetFractions(state, tree)) {
+        const raiseTo = clampToLegal(state.betToMatch + frac * (pot + toCall), raiseLegal)
+        out.push({ label: `Raise ${Math.round(frac * 100)}% pot`, amount: raiseTo, kind: 'raise' })
+      }
     }
     out.push({ label: 'All-in', amount: maxTo, kind: 'allin' })
   }

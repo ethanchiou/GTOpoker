@@ -69,7 +69,27 @@ export class PostflopSolverProvider implements StrategyProvider {
     return promise
   }
 
-  private async solveNode(node: GameNodeKey): Promise<NodeStrategy> {
+  /**
+   * Like {@link getStrategy} but also evaluates the given extra pot-fraction sizes
+   * alongside the street's default tree — the Live Solver's "preview my bet" slider,
+   * so the mix carries the exact size the user dials with its real frequency and EV.
+   * Cached per (node, extra fractions); falls back to the plain solve when empty.
+   */
+  async getStrategyWithSizes(node: GameNodeKey, extraBetFractions: readonly number[]): Promise<NodeStrategy> {
+    if (!this.supports(node)) {
+      throw new Error('PostflopSolverProvider does not support this node (heads-up postflop only)')
+    }
+    const extras = mergeFractions([], extraBetFractions)
+    if (extras.length === 0) return this.getStrategy(node)
+    const key = `${solveKey(node)}|+${extras.join(',')}`
+    const cached = this.cache.get(key)
+    if (cached) return cached
+    const promise = this.solveNode(node, extras)
+    this.cache.set(key, promise)
+    return promise
+  }
+
+  private async solveNode(node: GameNodeKey, extraBetFractions: readonly number[] = []): Promise<NodeStrategy> {
     const bb = node.bigBlindChips!
     const heroPos = node.heroPosition
     const villainPos = inHandPositions(node.history).find((p) => p !== heroPos)!
@@ -79,6 +99,7 @@ export class PostflopSolverProvider implements StrategyProvider {
       buildPreflopRange(heroPos, node.history, this.preflopProvider, board, bb),
       buildPreflopRange(villainPos, node.history, this.preflopProvider, board, bb),
     ])
+    const sizingContext = currentStreetSizingContext(node, heroPos, villainPos)
 
     const result = await this.transport.solve({
       board,
@@ -88,7 +109,10 @@ export class PostflopSolverProvider implements StrategyProvider {
       effectiveStackChips: node.effectiveStackChips ?? 0,
       bigBlindChips: bb,
       toCallChips: node.toCallChips ?? 0,
-      betFractions: this.fractionsFor(node.street),
+      heroCommittedThisStreetChips: sizingContext.heroCommitted,
+      villainCommittedThisStreetChips: sizingContext.villainCommitted,
+      minRaiseToChips: sizingContext.minRaiseTo,
+      betFractions: mergeFractions(this.fractionsFor(node.street), extraBetFractions),
       heroIsOop: isOutOfPosition(heroPos, villainPos),
     })
 
@@ -107,10 +131,56 @@ export class PostflopSolverProvider implements StrategyProvider {
   }
 }
 
+/** Union of two pot-fraction lists, positive-only, deduped (4dp) and ascending. */
+function mergeFractions(base: readonly number[], extra: readonly number[]): number[] {
+  const set = new Set<number>()
+  for (const f of base) if (f > 0) set.add(Number(f.toFixed(4)))
+  for (const f of extra) if (f > 0) set.add(Number(f.toFixed(4)))
+  return [...set].sort((a, b) => a - b)
+}
+
 /** Canonical solve-cache key: board + action path + chip context (spec §6.4). */
 function solveKey(node: GameNodeKey): string {
   const hist = node.history.map((r) => `${r.position}:${r.action.type}:${r.action.amount ?? ''}`).join('>')
-  return `${node.street}|${node.heroPosition}|${node.board.join(',')}|${hist}|${node.potChips}|${node.toCallChips}`
+  return `${node.street}|${node.heroPosition}|${node.board.join(',')}|${hist}|${node.potChips}|${node.toCallChips}|${node.effectiveStackChips}`
+}
+
+function currentStreetSizingContext(
+  node: GameNodeKey,
+  hero: Position,
+  villain: Position,
+): { heroCommitted: number; villainCommitted: number; minRaiseTo: number } {
+  const committed = new Map<Position, number>()
+  let betToMatch = 0
+  let lastFullRaiseIncrement = node.bigBlindChips ?? 100
+
+  for (const rec of node.history) {
+    if (rec.street !== node.street) continue
+    const amount = rec.action.amount
+    if (amount === undefined) continue
+
+    if (rec.action.type === 'bet') {
+      committed.set(rec.position, amount)
+      betToMatch = amount
+      lastFullRaiseIncrement = amount
+    } else if (rec.action.type === 'raise') {
+      committed.set(rec.position, amount)
+      const increment = amount - betToMatch
+      betToMatch = amount
+      if (increment >= lastFullRaiseIncrement) lastFullRaiseIncrement = increment
+    } else if (rec.action.type === 'call') {
+      committed.set(rec.position, amount)
+    }
+  }
+
+  const heroCommitted = committed.get(hero) ?? 0
+  const villainCommitted = committed.get(villain) ?? 0
+  const minRaiseTo =
+    betToMatch > heroCommitted
+      ? betToMatch + lastFullRaiseIncrement
+      : heroCommitted + (node.bigBlindChips ?? 100)
+
+  return { heroCommitted, villainCommitted, minRaiseTo }
 }
 
 /** Aggregate per-combo strategy into a per-hand-class grid (weighted by range mass). */
