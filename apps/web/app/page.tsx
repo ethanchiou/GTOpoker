@@ -38,8 +38,8 @@ export default function Home() {
 
       {tab === 'live' && (
         <p className="mb-4 text-sm text-slate-400">
-          Enter a real spot to see the GTO answer — no hand is dealt. Preflop today; turn/river is a
-          planned follow-up.
+          Enter a real spot to see the GTO answer — no hand is dealt. Preflop charts, plus heads-up
+          flop/turn/river: deal a board, set the pot and the villain’s bet, and slide your own sizing.
         </p>
       )}
 

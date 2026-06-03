@@ -1,25 +1,32 @@
-import { makeCard, NUM_RANKS, type Card } from '@gto/hand-eval'
+import { type Card } from '@gto/hand-eval'
 import { useState } from 'react'
-import { cardFace } from '../lib/format'
+import { CardGrid } from './CardGrid'
 import { CardView } from './CardView'
 
 export type HoleCards = [Card | null, Card | null]
 
-// Ranks high→low for a natural left-to-right layout; suits in s,h,d,c order.
-const RANK_ORDER = Array.from({ length: NUM_RANKS }, (_, i) => NUM_RANKS - 1 - i)
-const SUIT_ORDER = [3, 2, 1, 0]
-
 /**
  * Two-card hole-card picker (rank × suit, no duplicates). One slot is "active";
- * clicking a card fills it and advances to the other slot. Used cards are
- * disabled so the two cards can never collide.
+ * clicking a card fills it and advances to the other slot. Cards already used —
+ * either in the other slot or in `exclude` (e.g. the board) — are disabled so the
+ * hole cards can never collide with them.
  */
-export function CardPicker({ value, onChange }: { value: HoleCards; onChange: (next: HoleCards) => void }) {
+export function CardPicker({
+  value,
+  onChange,
+  exclude,
+}: {
+  value: HoleCards
+  onChange: (next: HoleCards) => void
+  /** Cards unavailable for selection (e.g. the community board). */
+  exclude?: ReadonlySet<Card>
+}) {
   const [active, setActive] = useState<0 | 1>(0)
   const used = new Set<Card>(value.filter((c): c is Card => c !== null))
+  const disabled = new Set<Card>([...used, ...(exclude ?? [])])
 
   const place = (card: Card) => {
-    if (used.has(card)) return
+    if (disabled.has(card)) return
     const next: HoleCards = [value[0], value[1]]
     next[active] = card
     onChange(next)
@@ -59,35 +66,7 @@ export function CardPicker({ value, onChange }: { value: HoleCards; onChange: (n
         </span>
       </div>
 
-      <div className="space-y-1">
-        {SUIT_ORDER.map((suit) => (
-          <div key={suit} className="flex gap-1">
-            {RANK_ORDER.map((rank) => {
-              const card = makeCard(rank, suit)
-              const f = cardFace(card)
-              const isUsed = used.has(card)
-              return (
-                <button
-                  key={card}
-                  disabled={isUsed}
-                  onClick={() => place(card)}
-                  className={`flex h-7 w-7 items-center justify-center rounded border text-xs font-semibold leading-none transition ${
-                    isUsed
-                      ? 'cursor-not-allowed border-slate-800 bg-slate-800/40 text-slate-600'
-                      : `border-slate-300 bg-white hover:ring-2 hover:ring-amber-400 ${
-                          f.red ? 'text-red-600' : 'text-slate-900'
-                        }`
-                  }`}
-                  aria-label={`${f.rank}${f.suit}`}
-                >
-                  <span>{f.rank}</span>
-                  <span className="text-[9px]">{f.suit}</span>
-                </button>
-              )
-            })}
-          </div>
-        ))}
-      </div>
+      <CardGrid disabled={disabled} onPick={place} />
     </div>
   )
 }
