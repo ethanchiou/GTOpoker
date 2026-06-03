@@ -252,6 +252,10 @@ function nodeKey(state: HandState, seat: SeatState): GameNodeKey {
     heroPosition: seat.position,
     board: [...state.board],
     history: [...state.history],
+    potChips: totalPot(state.seats),
+    effectiveStackChips: effectiveStack(state, seat),
+    toCallChips: Math.max(0, state.betToMatch - seat.committedThisStreet),
+    bigBlindChips: state.config.bigBlindChips,
   }
 }
 

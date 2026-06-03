@@ -1,0 +1,38 @@
+# GTO Trainer — postflop-solver → WASM glue crate (Phase 2, spec §4.7, §6.4).
+#
+# This compiles the AGPL-3.0 postflop-solver (b-inary) to WebAssembly with a tiny
+# JSON `solve` entry point that the browser SolverTransport calls from a Web
+# Worker. It is intentionally a thin shim: all equilibrium computation lives in
+# postflop-solver; this crate only marshals our SolveRequest/SolveResult JSON.
+#
+# NOTE: This crate is NOT built by the JS toolchain and is not compiled in CI
+# (no Rust toolchain in the default environment). Build it explicitly per
+# BUILD.md on a machine with rustup + wasm-pack; the produced `pkg/` artifact is
+# what apps/web loads.
+
+[package]
+name = "gto-solver-wasm"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0"
+publish = false
+description = "WASM glue around postflop-solver for the GTO Trainer"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Pin to a reviewed commit when building for real (see BUILD.md). Verify the
+# crate's current feature flags + public API against its README on build.
+postflop-solver = { git = "https://github.com/b-inary/postflop-solver" }
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+default = ["console_error_panic_hook"]
+
+[profile.release]
+opt-level = 3
+lto = true

@@ -26,12 +26,13 @@ export interface ChartSet {
   spots: AuthoredSpot[]
 }
 
-interface CompiledSpot {
+export interface CompiledSpot {
   actions: ActionId[]
   grid: Record<HandClass, ActionFrequency[]>
 }
 
-function compileSpot(spot: AuthoredSpot): CompiledSpot {
+/** Expand a spot's range strings into a full 169-class frequency grid (spec §6.3). */
+export function compileSpot(spot: AuthoredSpot): CompiledSpot {
   const ranges = spot.actions.map((a) => ({ id: a.id, map: parseRange(a.range) }))
   const grid: Record<HandClass, ActionFrequency[]> = {}
   for (const cls of ALL_HAND_CLASSES) {

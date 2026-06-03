@@ -39,8 +39,19 @@ export interface BetSizeTree {
   preflopReraiseMultipliers: number[]
   /** Offered preflop 4-bet sizes as multiples of the 3-bet raise-to amount. */
   preflopFourBetMultipliers: number[]
-  /** Postflop bet sizes as a fraction of the pot. */
+  /** Postflop bet sizes as a fraction of the pot (default/back-compat flat list). */
   postflopBetFractions: number[]
+  /**
+   * Per-street postflop bet/raise sizes as a fraction of the pot. When present the
+   * solver uses the street's list instead of the flat `postflopBetFractions`, so
+   * sizing reflects street norms (denser/smaller flop c-bets, polar turn/river
+   * sizings including overbets) rather than one menu everywhere.
+   */
+  postflopBetFractionsByStreet: {
+    flop: number[]
+    turn: number[]
+    river: number[]
+  }
 }
 
 export const DEFAULT_BET_SIZE_TREE: BetSizeTree = {
@@ -51,6 +62,11 @@ export const DEFAULT_BET_SIZE_TREE: BetSizeTree = {
   preflopReraiseMultipliers: [3, 3.5, 4],
   preflopFourBetMultipliers: [2.2, 2.5, 2.8],
   postflopBetFractions: [0.33, 0.75, 1.25],
+  postflopBetFractionsByStreet: {
+    flop: [0.25, 0.5, 0.75], // denser, smaller c-bet sizings
+    turn: [0.5, 0.75, 1.25], // larger, with an overbet
+    river: [0.5, 1, 1.5], // polar value/bluff sizings, incl. overbet
+  },
 }
 
 /** Position order starting from the button (offset 0 = BTN), for 6-max. */
