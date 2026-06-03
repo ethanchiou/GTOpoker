@@ -71,6 +71,16 @@ export interface GameNodeKey {
   board: readonly Card[]
   /** All actions so far this hand, in order. */
   history: readonly ActionRecord[]
+  /**
+   * Chip context at the node, in chips. Optional because the preflop chart
+   * provider does not need it; the engine always populates it, and the postflop
+   * solver provider requires it to build a solve request (spec §6.4). Including
+   * it here keeps the key self-contained and makes it a sound solve-cache key.
+   */
+  potChips?: number
+  effectiveStackChips?: number
+  toCallChips?: number
+  bigBlindChips?: number
 }
 
 /** Emitted whenever a seat must act; consumed by human UI, bots, and the scorer (spec §5.8). */
