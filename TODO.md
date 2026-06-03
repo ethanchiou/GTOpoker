@@ -24,17 +24,16 @@
 - **Win% / EV / pot-odds stat strip on the trainer decision view** (`DecisionStats` + shared `StatStrip`): pot odds (arithmetic), chances-to-win (hero vs the villain continuing range via Monte-Carlo `equityVsRange` + `villainContinuingRange`), and per-action EV (postflop solver only; preflop "—").
 - Documented the baseline→WASM `SolverTransport` swap tradeoffs in `spec.md` §6.5 (benefits, costs incl. AGPL-3.0 + unverified `lib.rs`, why baseline stays default).
 - **Live Solver postflop richer action lines:** the fabricated postflop node builder/UI now supports typed action-line presets for flop check-check → turn, flop bet-call → turn, turn bet-call → river, hero bet facing raise, villain donk bets, delayed c-bets, and probe nodes. The builder derives current-street commitments, to-call, min-raise, effective stack, and exact-size preview fractions for the shared postflop solver path.
+- **Live Solver postflop browser QA:** verified the full postflop flow in headless Chrome across all action-line presets, board/hole-card collision handling, manual bet controls, hero bet-vs-raise sliders, preflop pot/aggressor changes, seat swaps, and mobile layout. Fixed the board-picker active-slot edge case when expanding flop → turn/river and added the app icon so browser resource loading is clean.
 
 ## Next
 
-- Live Solver postflop follow-ups: browser-QA the full postflop flow, add street-size preset buttons beside the exact-size slider, show best action / best size / EV delta versus the slider size, add range-grid filters for value/bluff/check-call/fold hands, persist/share spots via URL params, then prioritize the real WASM solver for true CFR accuracy.
-- Build the postflop-solver WASM artifact (`packages/solver-worker/BUILD.md`) and switch the web transport from baseline to WASM for true CFR EVs.
-- Validate range-handoff + solver outputs against the WASM Postflop reference (spec §15 Phase 2).
-- Replace the hand-authored ranges with solved/licensed preflop GTO data (swap the JSON, bump version/confidence).
-- Add deeper preflop tree coverage for cold 4-bets, 5-bets, and squeeze/cold-call branches.
-- Cumulative per-hand EV feedback across streets; pre-solve-on-flop with a progress/abort affordance.
-- Persist sessions and hand histories for later review.
-- Add drill modes by position, action type, and leak category.
+2. **Postflop Live Solver UX polish:** add street-size preset buttons beside the exact-size slider, show best action / best size, and show EV delta versus the user's preview slider size.
+3. **Shareable Live Solver spots:** persist Live Solver inputs in URL params so spots can be copied, debugged, and regression-tested.
+4. **Real WASM solver:** build the postflop-solver WASM artifact (`packages/solver-worker/BUILD.md`), switch the web transport from baseline to WASM, keep baseline fallback, and resolve the known facing-a-bet navigation TODO.
+5. **Solver correctness validation:** validate range handoff and postflop outputs against the WASM/Postflop reference solver within tolerances (spec §15 Phase 2).
+6. **Preflop data/tree depth:** replace hand-authored ranges with solved/licensed preflop GTO data, then add cold 4-bets, 5-bets, squeezes, and cold-call branches.
+7. **Trainer product features:** add cumulative per-hand EV, pre-solve-on-flop with progress/abort, session persistence, hand histories, and drill modes.
 
 ## Bot algorithm — remaining / deferred
 

@@ -25,7 +25,9 @@ export function BoardPicker({
   const used = new Set<Card>(slots.filter((c): c is Card => c !== null))
   const disabled = new Set<Card>([...used, ...(exclude ?? [])])
 
-  const activeSlot = active < count ? active : slots.findIndex((c) => c === null)
+  const firstEmpty = slots.findIndex((c) => c === null)
+  const activeSlot =
+    active < count && slots[active] === null ? active : firstEmpty >= 0 ? firstEmpty : Math.max(0, count - 1)
 
   const place = (card: Card) => {
     if (disabled.has(card)) return
