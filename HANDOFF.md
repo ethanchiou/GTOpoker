@@ -2,10 +2,9 @@
 
 > Working handoff for the next engineer/agent. Pairs with [`spec.md`](./spec.md)
 > (full design), [`README.md`](./README.md) (overview), and [`TODO.md`](./TODO.md)
-> (running task log). Last updated: 2026-06-03 — Postflop Live Solver UX polish
-> is shipped and browser-QA'd. **Immediate next task:** task 3, shareable Live
-> Solver spots; see §2.1 below. Remaining tasks 3-7 are tracked
-> there and in `TODO.md`.
+> (running task log). Last updated: 2026-06-03 — shareable Live Solver spots is
+> shipped and browser-QA'd. **Immediate next task:** task 4, the real WASM
+> solver; see §2.1 below. Remaining tasks 4-7 are tracked there and in `TODO.md`.
 
 ## 1. What this is
 
@@ -48,27 +47,39 @@ solver") so it's never mistaken for GTO.
   - **Shared core helpers** (in `@gto/strategy` for CI coverage): `equityVsRange` + `potOddsPct` (`equity-vs-range.ts`), `buildPreflopLineNode` + `positionsBefore/After` (`live-node.ts`), and `villainContinuingRange` (`range-handoff.ts`). Tests: `equity-vs-range.test.ts`, `live-node.test.ts`. The web provider construction was extracted to `apps/web/lib/strategyProvider.ts` so both tabs share one provider + solve cache.
   - **spec.md §6.5** — the baseline→WASM transport-swap tradeoffs (benefits / costs / why baseline stays default).
 
-## 2.1 Immediate next task: task 3, shareable Live Solver spots
+## 2.1 Immediate next task: task 4, the real WASM solver
 
-Browser QA for task 1 is complete. It exercised `/` → `Live Solver` → `Postflop`
-in headless Chrome across every action-line preset, board/hole-card collision
-handling, manual bet controls, hero bet-vs-raise sliders, preflop pot/aggressor
-changes, seat swaps, not-in-range messaging, and mobile layout. No console/runtime
-or failed-network errors remained after adding `apps/web/app/icon.svg`. QA also
-found and fixed a `BoardPicker` active-slot edge case where switching a completed
-flop to turn/river could replace a flop card instead of filling the new empty slot.
+Task 3 (shareable Live Solver spots) is complete. Every Live Solver input now
+persists in the URL query string so a spot can be copied, reopened, and used as a
+regression fixture:
 
-Task 2 is now complete: postflop Live Solver has street-size preset buttons next
-to the exact-size slider, a best-action / best-size / preview-delta summary, and
-an exact-size readout showing EV delta vs the best action. The pure sizing and
-row-analysis helpers live in `packages/strategy/src/live-solver-analysis.ts` with
-CI tests; the UI is in `apps/web/components/LiveSolverPostflop.tsx`. Verified with
-`pnpm run check` (157 tests), `apps/web` tsc, `next build`, and headless Chrome
-desktop/mobile smoke checks against `Live Solver → Postflop`.
+- **Codec (CI-tested, pure):** `packages/strategy/src/live-spot.ts` +
+  `live-spot.test.ts`. `encode/decodeLiveSolverSpot` map a `LiveSolverSpot`
+  (discriminated preflop|postflop) to/from a `URLSearchParams` string. Cards use
+  the `cardToString`/`cardFromString` tokens (`AsKh`). Decode validates every
+  field independently and drops anything malformed (the caller fills its default);
+  it returns `null` only when `m` (mode) is missing/unknown.
+- **Web glue:** `apps/web/lib/liveSolverUrl.ts` — `readDecodedSpot`,
+  `writeSpotToUrl` (uses `history.replaceState`, no history spam), `liveSpotPresent`,
+  `copyCurrentUrl`, `holeFromCards`. The two leaves (`LiveSolverPreflop`/`Postflop`)
+  seed `useState` from the URL on mount and write back on every input change.
+  `app/page.tsx` flips to the Live Solver tab (in an effect) when a spot is present,
+  so the Live Solver mounts client-only and there is no hydration mismatch.
+- **Full fidelity:** the adjustable pot *and* the preview-bet are restored. Both
+  are normally reset to computed defaults by effects in `LiveSolverPostflop`; those
+  two effects are now guarded by a strict-mode-safe ref-compare (`potStructRef` /
+  `betNodeRef` + `potSeeded` / `betSeeded`) so a URL-seeded value survives mount but
+  a genuine structural change still re-defaults.
+- **UI:** a **Copy link** button next to the Preflop/Postflop switcher in
+  `components/LiveSolver.tsx` (copies `window.location.href`; the URL is always in
+  sync with the inputs).
+
+Verified with `pnpm run check` (185 tests incl. 10 new codec tests), `apps/web`
+tsc + `next build`, and headless Chrome end-to-end: preflop + postflop deep-links
+restore exactly (incl. `pot=12bb` / preview `bet=9bb`, the effect-managed values),
+URLs round-trip, and there are no console or hydration errors.
 
 Remaining next tasks:
-3. **Shareable Live Solver spots:** persist Live Solver inputs in URL params so
-   spots can be copied, debugged, and regression-tested.
 4. **Real WASM solver:** build the postflop-solver WASM artifact
    (`packages/solver-worker/BUILD.md`), switch the web transport from baseline to
    WASM, keep baseline fallback, and resolve the known facing-a-bet navigation TODO.

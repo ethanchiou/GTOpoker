@@ -14,9 +14,10 @@ import {
   type NodeStrategy,
   type PreflopLine,
 } from '@gto/strategy'
-import { createRng } from '@gto/hand-eval'
+import { createRng, type Card as CardCode } from '@gto/hand-eval'
 import { useEffect, useMemo, useState } from 'react'
 import { actionLabel, bb } from '../lib/format'
+import { holeFromCards, readDecodedSpot, writeSpotToUrl } from '../lib/liveSolverUrl'
 import { strategyProvider } from '../lib/strategyProvider'
 import { ActionRandomizer } from './ActionRandomizer'
 import { CardPicker, type HoleCards } from './CardPicker'
@@ -67,14 +68,41 @@ interface Outcome {
   facingBet: boolean
 }
 
+/** Initial inputs, seeded from a shared-link URL spot (preflop mode) when present. */
+function initialInputs() {
+  const spot = readDecodedSpot()
+  const s = spot?.mode === 'preflop' ? spot : null
+  return {
+    hero: s?.hero ?? ('CO' as Position),
+    lineKind: s?.lineKind ?? ('vsRfi' as LineKind),
+    opener: s?.opener ?? null,
+    threeBettor: s?.threeBettor ?? null,
+    cards: holeFromCards(s?.cards),
+  }
+}
+
 export function LiveSolverPreflop() {
-  const [hero, setHero] = useState<Position>('CO')
-  const [lineKind, setLineKind] = useState<LineKind>('vsRfi')
-  const [opener, setOpener] = useState<Position | null>(null)
-  const [threeBettor, setThreeBettor] = useState<Position | null>(null)
-  const [cards, setCards] = useState<HoleCards>([null, null])
+  const seed = useMemo(initialInputs, [])
+  const [hero, setHero] = useState<Position>(seed.hero)
+  const [lineKind, setLineKind] = useState<LineKind>(seed.lineKind)
+  const [opener, setOpener] = useState<Position | null>(seed.opener)
+  const [threeBettor, setThreeBettor] = useState<Position | null>(seed.threeBettor)
+  const [cards, setCards] = useState<HoleCards>(seed.cards)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // Mirror the inputs into the URL so the spot is shareable. Irrelevant fields
+  // (opener unless vsRfi, 3-bettor unless vs3bet) are normalised out by the codec.
+  useEffect(() => {
+    writeSpotToUrl({
+      mode: 'preflop',
+      hero,
+      lineKind,
+      opener,
+      threeBettor,
+      cards: cards.filter((c): c is CardCode => c !== null),
+    })
+  }, [hero, lineKind, opener, threeBettor, cards])
 
   const resolved = useMemo(
     () => resolveLine(hero, lineKind, opener, threeBettor),
