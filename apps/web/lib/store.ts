@@ -3,18 +3,13 @@ import {
   applyAction,
   createHand,
   decisionPoint,
-  runToShowdown,
   type Action,
   type DecisionPoint,
   type HandState,
 } from '@gto/poker-engine'
-import {
-  decideGtoAction,
-  handClass,
-  PreflopChartProvider,
-  SEED_CHART,
-  type NodeStrategy,
-} from '@gto/strategy'
+import { decideGtoAction, handClass, type NodeStrategy } from '@gto/strategy'
+import { strategyProvider as provider } from './strategyProvider'
+import { buildReplaySteps, type ReplayStep } from './replay'
 import {
   createSessionStats,
   noteHandComplete,
@@ -25,7 +20,45 @@ import {
 } from '@gto/scoring'
 import { create } from 'zustand'
 
-const provider = new PreflopChartProvider(SEED_CHART)
+export interface Settings {
+  /** Multiplier on bot think-time; 0 = instant (no per-action animation). */
+  botTimeScale: number
+  /** When true, folding plays the hand out; when false, it jumps to the result. */
+  showFullHand: boolean
+}
+
+/** Bot turn-time presets surfaced in the settings menu (Instant = 0). */
+export const BOT_SPEEDS = [
+  { label: 'Instant', scale: 0 },
+  { label: 'Fast', scale: 0.5 },
+  { label: 'Normal', scale: 1 },
+  { label: 'Slow', scale: 1.8 },
+] as const
+
+const DEFAULT_SETTINGS: Settings = { botTimeScale: 1, showFullHand: false }
+const SETTINGS_KEY = 'gto-trainer-settings'
+
+function loadSettings(): Settings {
+  if (typeof window === 'undefined') return DEFAULT_SETTINGS
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_KEY)
+    return raw ? { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) } : DEFAULT_SETTINGS
+  } catch {
+    return DEFAULT_SETTINGS
+  }
+}
+
+function saveSettings(settings: Settings): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+  } catch {
+    // ignore storage failures (private mode / quota)
+  }
+}
+
+// The strategy spine is constructed once in `lib/strategyProvider.ts` and shared
+// with the Live Solver tab so both hold one provider + solve cache (spec §6.1).
 const HERO_SEAT = 0
 const NUM_SEATS = 6
 const MAX_STEPS = 200 // safety bound on the bot-advance loop
@@ -47,20 +80,51 @@ function createSessionSeed(): string {
   return `gto-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
 /**
- * Advance the hand: let bots act from the GTO strategy until it is the hero's
- * preflop turn or the hand ends. Postflop is not trained in the MVP, so once
- * preflop closes the hand is run out to showdown (spec §2.2).
+ * Human-like bot think time (ms) so bots don't all act in the same frame. Varies
+ * with the spot — aggression and later streets take longer, with occasional snap
+ * actions and tanks — drawn from a dedicated seeded RNG so it never perturbs the
+ * action stream (`botRng`) the hands are reproduced from (replay reconstructs from
+ * `history`, so timing is purely cosmetic).
  */
-async function drive(start: HandState, botRng: SeededRng): Promise<DriveResult> {
+function botThinkMs(action: Action, dp: DecisionPoint, rng: SeededRng): number {
+  let ms = 300 + rng.nextFloat() * 500 // 0.3–0.8s base
+  if (action.type === 'raise' || action.type === 'bet') ms += 250 + rng.nextFloat() * 350 // sizing takes thought
+  if (dp.street === 'turn') ms += 150
+  if (dp.street === 'river') ms += 300
+  const r = rng.nextFloat()
+  if (r < 0.12) ms = 150 + rng.nextFloat() * 150 // snap
+  else if (r > 0.9) ms += 700 + rng.nextFloat() * 900 // tank
+  return Math.min(2600, Math.round(ms))
+}
+
+/**
+ * Advance the hand: let bots act from the GTO strategy (preflop charts + the
+ * heads-up postflop solver) until it is the hero's turn or the hand ends. The
+ * hero is now trained on every street (spec §2.1, Phase 2): we stop at the
+ * hero's decision on any street and surface the strategy for it. Heads-up-by-the
+ * -flop spots are solved; multiway/unsupported postflop nodes return a null
+ * strategy and are flagged in the UI rather than graded.
+ */
+/**
+ * Optional animation hook: when provided, each bot acts after a human-like delay
+ * and the intermediate state is pushed via `onStep` so bots are seen acting one
+ * at a time. Omitted for the pre-hero deal (snappy) and only used for the bot
+ * responses after the hero acts.
+ */
+interface DriveAnim {
+  onStep: (state: HandState) => void
+  rng: SeededRng
+  /** Multiplier on each bot's think-time (from the bot-turn-time setting). */
+  scale: number
+}
+
+async function drive(start: HandState, botRng: SeededRng, anim?: DriveAnim): Promise<DriveResult> {
   let state = start
   for (let i = 0; i < MAX_STEPS; i++) {
     if (state.phase === 'complete') return { state, decision: null, strategy: null }
-
-    // Preflop closed but the hand continues → run out (no postflop training yet).
-    if (state.street !== 'preflop') {
-      return { state: runToShowdown(state), decision: null, strategy: null }
-    }
 
     const dp = decisionPoint(state)
     if (!dp) return { state, decision: null, strategy: null }
@@ -70,9 +134,63 @@ async function drive(start: HandState, botRng: SeededRng): Promise<DriveResult> 
       return { state, decision: dp, strategy }
     }
 
-    state = applyAction(state, await decideGtoAction(dp, provider, botRng))
+    const action = await decideGtoAction(dp, provider, botRng)
+    if (anim) await sleep(botThinkMs(action, dp, anim.rng) * anim.scale)
+    state = applyAction(state, action)
+    anim?.onStep(state)
   }
   return { state, decision: null, strategy: null }
+}
+
+/** A hero GTO chart snapshot for one replay step, plus a friendly node label. */
+export interface ReplayStrategy {
+  strategy: NodeStrategy
+  heroHand: string
+  label: string
+}
+
+/** Friendly description of a hero decision node ("Turn · facing raise"). */
+function describeNode(dp: DecisionPoint): string {
+  const street = dp.street[0]!.toUpperCase() + dp.street.slice(1)
+  if (dp.street === 'preflop') {
+    const raises = dp.actionHistory.filter((r) => r.action.type === 'raise').length
+    if (raises === 0) return `${street} · open`
+    if (raises === 1) return `${street} · facing raise`
+    return `${street} · facing ${raises + 1}-bet`
+  }
+  if (dp.toCallChips > 0) {
+    const lastAgg = [...dp.actionHistory]
+      .reverse()
+      .find((r) => r.street === dp.street && (r.action.type === 'bet' || r.action.type === 'raise'))
+    return `${street} · facing ${lastAgg?.action.type === 'raise' ? 'raise' : 'bet'}`
+  }
+  return `${street} · first to act`
+}
+
+/**
+ * The hero GTO chart active at each replay step, carried forward from the most
+ * recent hero decision so the chart visibly evolves (street to street, and when
+ * the opponent raises) as the replay is scrubbed. Steps before the hero's first
+ * decision reuse that first chart; unsupported (multiway) nodes keep the prior one.
+ */
+async function buildReplayStrategies(steps: ReplayStep[]): Promise<(ReplayStrategy | null)[]> {
+  const perStep: (ReplayStrategy | null)[] = new Array(steps.length).fill(null)
+  let current: ReplayStrategy | null = null
+  for (let i = 0; i < steps.length; i++) {
+    const dp = decisionPoint(steps[i]!.state)
+    if (dp && dp.seatIndex === HERO_SEAT && provider.supports(dp.nodeKey)) {
+      const strategy = await provider.getStrategy(dp.nodeKey)
+      current = {
+        strategy,
+        heroHand: handClass(dp.heroHoleCards[0], dp.heroHoleCards[1]),
+        label: describeNode(dp),
+      }
+    }
+    perStep[i] = current
+  }
+  const firstIdx = perStep.findIndex((s) => s !== null)
+  if (firstIdx > 0) for (let i = 0; i < firstIdx; i++) perStep[i] = perStep[firstIdx]!
+  return perStep
 }
 
 export interface PlayStore {
@@ -90,10 +208,26 @@ export interface PlayStore {
   stats: SessionStats
   scenarioRng: SeededRng
   botRng: SeededRng
+  /** Drives bot think-time only; kept separate so it never perturbs `botRng`. */
+  timingRng: SeededRng
+  /** User settings (bot turn time, show-full-hand); persisted to localStorage. */
+  settings: Settings
+  /** True when the hero's hand is resolved (complete, or folded out and skipped). */
+  handDone: boolean
   busy: boolean
+  /** Stepwise reconstruction of the current hand while the replayer is open (else null). */
+  replaySteps: ReplayStep[] | null
+  replayIndex: number
+  /** Hero GTO chart per replay step (null while still being derived). */
+  replayStrategies: (ReplayStrategy | null)[] | null
   newHand: () => Promise<void>
   revealChart: () => void
+  setSettings: (patch: Partial<Settings>) => void
   heroAct: (action: Action) => Promise<void>
+  startReplay: () => void
+  exitReplay: () => void
+  replayGoto: (index: number) => void
+  replayStep: (delta: number) => void
 }
 
 export const usePlayStore = create<PlayStore>((set, get) => ({
@@ -110,7 +244,13 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
   stats: createSessionStats(),
   scenarioRng: createRng(`${INITIAL_BASE_SEED}:scenarios`),
   botRng: createRng(`${INITIAL_BASE_SEED}:bots`),
+  timingRng: createRng(`${INITIAL_BASE_SEED}:timing`),
+  settings: loadSettings(),
+  handDone: false,
   busy: false,
+  replaySteps: null,
+  replayIndex: 0,
+  replayStrategies: null,
 
   async newHand() {
     let handNumber = get().handNumber
@@ -118,7 +258,17 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
     let buttonIndex = get().buttonIndex
     let res: DriveResult | null = null
 
-    set({ busy: true, lastScore: null, reviewStrategy: null, reviewHand: null, chartRevealed: false })
+    set({
+      busy: true,
+      handDone: false,
+      lastScore: null,
+      reviewStrategy: null,
+      reviewHand: null,
+      chartRevealed: false,
+      replaySteps: null,
+      replayIndex: 0,
+      replayStrategies: null,
+    })
 
     for (let attempt = 0; attempt < MAX_NEW_HAND_ATTEMPTS; attempt++) {
       handNumber += 1
@@ -168,10 +318,16 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
     set({ chartRevealed: true })
   },
 
+  setSettings(patch) {
+    const settings = { ...get().settings, ...patch }
+    saveSettings(settings)
+    set({ settings })
+  },
+
   async heroAct(action) {
-    const { state, decision, strategy, stats } = get()
+    const { state, decision, strategy, stats, settings, timingRng } = get()
     if (!state || !decision || get().busy) return
-    set({ busy: true })
+    set({ busy: true, handDone: false })
 
     let lastScore: DecisionScore | null = get().lastScore
     let reviewStrategy = get().reviewStrategy
@@ -183,12 +339,36 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
       reviewHand = handClass(decision.heroHoleCards[0], decision.heroHoleCards[1])
     }
 
-    const res = await drive(applyAction(state, action), get().botRng)
+    const next = applyAction(state, action)
+
+    // Folding ends the hero's involvement. With "Show full hand" off we skip the
+    // bot playout and jump straight to the GTO result (no runout shown).
+    if (action.type === 'fold' && !settings.showFullHand) {
+      noteHandComplete(stats)
+      set({
+        state: next,
+        decision: null,
+        strategy: null,
+        handDone: true,
+        lastScore,
+        reviewStrategy,
+        reviewHand,
+        chartRevealed: false,
+        stats: { ...stats },
+        busy: false,
+      })
+      return
+    }
+
+    // Animate bot responses one at a time unless the turn time is Instant (0).
+    const anim = settings.botTimeScale > 0 ? { onStep: (s: HandState) => set({ state: s }), rng: timingRng, scale: settings.botTimeScale } : undefined
+    const res = await drive(next, get().botRng, anim)
     if (res.state.phase === 'complete') noteHandComplete(stats)
     set({
       state: res.state,
       decision: res.decision,
       strategy: res.strategy,
+      handDone: res.decision === null,
       lastScore,
       reviewStrategy,
       reviewHand,
@@ -196,6 +376,32 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
       stats: { ...stats },
       busy: false,
     })
+  },
+
+  startReplay() {
+    const { state } = get()
+    if (!state || state.history.length === 0) return
+    const steps = buildReplaySteps(state, { heroSeat: HERO_SEAT, controllers: CONTROLLERS })
+    set({ replaySteps: steps, replayIndex: 0, replayStrategies: null })
+    // Derive each step's hero chart off the main thread; apply only if this same
+    // replay is still open (guards against exit / a newly started replay).
+    void buildReplayStrategies(steps).then((replayStrategies) => {
+      if (get().replaySteps === steps) set({ replayStrategies })
+    })
+  },
+
+  exitReplay() {
+    set({ replaySteps: null, replayIndex: 0, replayStrategies: null })
+  },
+
+  replayGoto(index) {
+    const { replaySteps } = get()
+    if (!replaySteps) return
+    set({ replayIndex: Math.max(0, Math.min(replaySteps.length - 1, index)) })
+  },
+
+  replayStep(delta) {
+    get().replayGoto(get().replayIndex + delta)
   },
 }))
 
