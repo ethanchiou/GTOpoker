@@ -15,10 +15,11 @@ import {
   type PreflopLine,
 } from '@gto/strategy'
 import { createRng, type Card as CardCode } from '@gto/hand-eval'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { actionLabel, bb } from '../lib/format'
 import { holeFromCards, readDecodedSpot, writeSpotToUrl } from '../lib/liveSolverUrl'
 import { strategyProvider } from '../lib/strategyProvider'
+import { recordHandSimulated } from '../lib/analytics'
 import { ActionRandomizer } from './ActionRandomizer'
 import { CardPicker, type HoleCards } from './CardPicker'
 import { HandStrength } from './HandStrength'
@@ -89,6 +90,7 @@ export function LiveSolverPreflop() {
   const [threeBettor, setThreeBettor] = useState<Position | null>(seed.threeBettor)
   const [cards, setCards] = useState<HoleCards>(seed.cards)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
+  const countedSpotRef = useRef<string | null>(null) // last spot counted toward the private usage metric
   const [loading, setLoading] = useState(false)
 
   // Mirror the inputs into the URL so the spot is shareable. Irrelevant fields
@@ -120,6 +122,12 @@ export function LiveSolverPreflop() {
     if (!line) {
       setOutcome(null)
       return
+    }
+    // Count one simulated hand per distinct spot — not per hole-card tweak/re-render.
+    const spotKey = describeSpot(line)
+    if (countedSpotRef.current !== spotKey) {
+      countedSpotRef.current = spotKey
+      recordHandSimulated('live-solver')
     }
     let cancelled = false
     setLoading(true)

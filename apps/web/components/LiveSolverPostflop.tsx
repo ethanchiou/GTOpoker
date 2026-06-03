@@ -30,6 +30,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { actionLabel, bb } from '../lib/format'
 import { holeFromCards, readDecodedSpot, writeSpotToUrl } from '../lib/liveSolverUrl'
 import { postflopProvider, strategyProvider } from '../lib/strategyProvider'
+import { recordHandSimulated } from '../lib/analytics'
 import { ActionRandomizer } from './ActionRandomizer'
 import { BoardPicker } from './BoardPicker'
 import { CardPicker, type HoleCards } from './CardPicker'
@@ -121,6 +122,7 @@ export function LiveSolverPostflop() {
   const betSeeded = useRef(seed.betSeeded)
   const potStructRef = useRef<string | null>(null)
   const betNodeRef = useRef<string | null>(null)
+  const countedNodeRef = useRef<string | null>(null) // last spot counted toward the private usage metric
 
   // Mirror the inputs into the URL so the spot is shareable. `heroBetChips` is the
   // raw slider state (the displayed value is clamped to the node) and round-trips.
@@ -321,6 +323,11 @@ export function LiveSolverPostflop() {
     if (!node) {
       setStrategy(null)
       return
+    }
+    // Count one simulated hand per distinct spot — not per bet-slider tweak/re-render.
+    if (countedNodeRef.current !== nodeKey) {
+      countedNodeRef.current = nodeKey
+      recordHandSimulated('live-solver')
     }
     let cancelled = false
     setSolving(true)
