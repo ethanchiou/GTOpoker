@@ -2,9 +2,10 @@
 
 > Working handoff for the next engineer/agent. Pairs with [`spec.md`](./spec.md)
 > (full design), [`README.md`](./README.md) (overview), and [`TODO.md`](./TODO.md)
-> (running task log). Last updated: 2026-06-03 — Live Solver postflop is wired to
-> the shared postflop engine. **Immediate next task:** richer Live Solver postflop
-> action lines; see §2.1 below. Other useful follow-ups are tracked in `TODO.md`.
+> (running task log). Last updated: 2026-06-03 — Live Solver postflop richer
+> action lines are shipped and browser-QA'd. **Immediate next task:** task 2,
+> postflop Live Solver UX polish; see §2.1 below. Remaining tasks 2-7 are tracked
+> there and in `TODO.md`.
 
 ## 1. What this is
 
@@ -47,70 +48,31 @@ solver") so it's never mistaken for GTO.
   - **Shared core helpers** (in `@gto/strategy` for CI coverage): `equityVsRange` + `potOddsPct` (`equity-vs-range.ts`), `buildPreflopLineNode` + `positionsBefore/After` (`live-node.ts`), and `villainContinuingRange` (`range-handoff.ts`). Tests: `equity-vs-range.test.ts`, `live-node.test.ts`. The web provider construction was extracted to `apps/web/lib/strategyProvider.ts` so both tabs share one provider + solve cache.
   - **spec.md §6.5** — the baseline→WASM transport-swap tradeoffs (benefits / costs / why baseline stays default).
 
-## 2.1 Immediate next task: richer Live Solver postflop action lines
+## 2.1 Immediate next task: task 2, postflop Live Solver UX polish
 
-Start here next. The Live Solver postflop UI exists and is connected to the same
-postflop engine the trainer uses, but its node model is intentionally simplified:
-it builds a preflop line, adds a board, adds pot/effective-stack context, and can
-optionally add **one current-street villain bet**. It does **not** yet model explicit
-prior-street postflop action lines.
+Browser QA for task 1 is complete. It exercised `/` → `Live Solver` → `Postflop`
+in headless Chrome across every action-line preset, board/hole-card collision
+handling, manual bet controls, hero bet-vs-raise sliders, preflop pot/aggressor
+changes, seat swaps, not-in-range messaging, and mobile layout. No console/runtime
+or failed-network errors remained after adding `apps/web/app/icon.svg`. QA also
+found and fixed a `BoardPicker` active-slot edge case where switching a completed
+flop to turn/river could replace a flop card instead of filling the new empty slot.
 
-Current entry points:
-- `apps/web/components/LiveSolver.tsx` switches `Preflop | Postflop`.
-- `apps/web/components/LiveSolverPostflop.tsx` owns postflop UI state: street,
-  positions, pot type, preflop aggressor, board, pot, optional villain bet, hero
-  hand, and hero exact-size preview slider.
-- `packages/strategy/src/live-node.ts` has `buildPostflopLineNode`, which fabricates
-  the `GameNodeKey` consumed by `PostflopSolverProvider`.
-- `packages/strategy/src/postflop-provider.ts` has `getStrategyWithSizes(node, extraFractions)`;
-  this merges the slider's exact pot fraction into the street size tree and solves.
-- Tests covering the current live postflop node path are in
-  `packages/strategy/src/live-node.test.ts`.
-
-Target for task 2:
-- Extend the Live Solver postflop builder/UI beyond "preflop line + board + optional
-  single villain bet" to support explicit action lines, starting with:
-  - flop check-check → turn spot
-  - flop bet-call → turn spot
-  - turn bet-call → river spot
-  - hero bet facing raise
-  - villain donk bets
-  - delayed c-bet / probe nodes
-- Prefer modeling this as a typed action-line state in `live-node.ts`, then render
-  simple controls in `LiveSolverPostflop.tsx`. Keep it deterministic and do not
-  play a real hand just to create the node.
-- The generated `GameNodeKey.history` should include enough postflop `ActionRecord`s
-  for `PostflopSolverProvider.currentStreetSizingContext` to derive current-street
-  commitments, villain commitment, and min-raise correctly. Prior street actions can
-  also live in history for replay/description, while pot/effective stack remain the
-  authoritative chip context.
-- Preserve the existing `getStrategyWithSizes` exact-size preview behavior. The
-  user's slider size should remain an extra pot fraction added to the default tree,
-  not replace the tree.
-- Watch card collision handling: board picker and hole-card picker already pass
-  `exclude` sets through `BoardPicker`, `CardPicker`, and `CardGrid`.
-
-Recommended implementation shape:
-- Add a `PostflopActionLine` / `PostflopActionStep` type in `strategy/live-node.ts`.
-- Update `buildPostflopLineNode` to accept an optional postflop line and append
-  records for completed prior streets plus the current facing action.
-- Have the builder return any useful derived values the UI needs: current street
-  villain commitment, min raise-to, effective stack, and friendly line label.
-- Update `LiveSolverPostflop.tsx` with a compact action-line selector before the
-  pot/bet controls. Start with presets rather than a free-form action editor.
-- Add tests in `live-node.test.ts` for each supported line: history shape,
-  `potChips`, `toCallChips`, `effectiveStackChips`, provider `supports`, and the
-  exact-size fraction math for facing raises.
-
-Validation for this task:
-- `pnpm vitest run packages/strategy/src/live-node.test.ts packages/strategy/src/postflop.test.ts`
-- `pnpm run check`
-- `npx tsc --noEmit -p apps/web/tsconfig.json`
-- `pnpm --dir apps/web build`
-
-See [`TODO.md`](./TODO.md) `## Next` for the rest of the useful follow-ups after
-task 2: browser QA, street-size preset buttons, best action / best size / EV delta,
-range-grid filters, URL-shareable spots, and the real WASM solver for true CFR EVs.
+Remaining next tasks:
+2. **Postflop Live Solver UX polish:** add street-size preset buttons beside the
+   exact-size slider, show best action / best size, and show EV delta versus the
+   user's preview slider size.
+3. **Shareable Live Solver spots:** persist Live Solver inputs in URL params so
+   spots can be copied, debugged, and regression-tested.
+4. **Real WASM solver:** build the postflop-solver WASM artifact
+   (`packages/solver-worker/BUILD.md`), switch the web transport from baseline to
+   WASM, keep baseline fallback, and resolve the known facing-a-bet navigation TODO.
+5. **Solver correctness validation:** validate range handoff and postflop outputs
+   against the WASM/Postflop reference solver within tolerances (spec §15 Phase 2).
+6. **Preflop data/tree depth:** replace hand-authored ranges with solved/licensed
+   preflop GTO data, then add cold 4-bets, 5-bets, squeezes, and cold-call branches.
+7. **Trainer product features:** add cumulative per-hand EV, pre-solve-on-flop with
+   progress/abort, session persistence, hand histories, and drill modes.
 
 ## 3. Scope
 
@@ -196,21 +158,24 @@ for reference. **Clean follow-ups left open** (none blocking):
   The Live Solver now has a **Preflop | Postflop** mode toggle (`components/LiveSolver.tsx`).
   Postflop (`components/LiveSolverPostflop.tsx`) is a **single-node lookup**: pick street,
   both seats, preflop pot type (single-raised / 3-bet) + aggressor, deal a board
-  (`components/BoardPicker.tsx`), set the pot, choose the villain's action (first-to-act
-  or a bet/raise with a size slider), pick your hand, and slide your own bet. It reuses
-  the trainer's exact solver path: a new `buildPostflopLineNode` (`strategy/live-node.ts`)
+  (`components/BoardPicker.tsx`), choose an action-line preset, set pot/bet/raise
+  sizes, pick your hand, and slide your own exact-size preview. It reuses the
+  trainer's exact solver path: `buildPostflopLineNode` (`strategy/live-node.ts`)
   fabricates the heads-up postflop `GameNodeKey` the `PostflopSolverProvider` already
-  serves; the "preview my bet" slider maps to a pot fraction (`potFractionForBetTo`) fed
-  to a new `PostflopSolverProvider.getStrategyWithSizes` so the mix carries the exact size
-  with its real frequency + EV. Outputs reuse `StrategyMix`/`StrategyGrid`/`StatStrip`/
+  serves, including explicit postflop `ActionRecord`s for flop x/x, flop bet/call,
+  turn bet/call, bet-vs-raise, donk, delayed c-bet, and probe nodes. The "preview my
+  bet" slider maps to a pot fraction (`potFractionForBetTo`) fed to
+  `PostflopSolverProvider.getStrategyWithSizes` so the mix carries the exact size with
+  its real frequency + EV. Outputs reuse `StrategyMix`/`StrategyGrid`/`StatStrip`/
   `ActionRandomizer` + `equityVsRange`. The old preflop view moved verbatim into
   `components/LiveSolverPreflop.tsx`; shared primitives are in `components/LiveSolverUI.tsx`;
   `CardPicker` was refactored onto a shared `components/CardGrid.tsx` and gained an
-  `exclude` prop. New tests in `strategy/live-node.test.ts` (pot/stack math, provider
-  support, slider fraction, extra-sizes solve). **Note:** a hand the chart 3-bets/folds
-  preflop (e.g. AQo as a BB flat vs a BTN open) isn't in the line's flop range, so the UI
-  shows an explicit "not in range" note instead of a misleading pure-fold mix — pick a
-  hand that continues the line or switch the pot type.
+  `exclude` prop. New tests in `strategy/live-node.test.ts` cover history shape,
+  pot/to-call/stack/min-raise math, provider support, slider fractions, and extra-size
+  solves. **Note:** a hand the chart 3-bets/folds preflop (e.g. AQo as a BB flat vs a
+  BTN open) isn't in the line's flop range, so the UI shows an explicit "not in range"
+  note instead of a misleading pure-fold mix — pick a hand that continues the line or
+  switch the pot type.
 - **Live Solver EV** — preflop shows "—" (charts carry no EV). Real EVs arrive with the
   WASM solver (§6.5) for postflop, or solved preflop data for preflop.
 - **Live Solver state** is component-local and resets when you switch tabs (trainer
