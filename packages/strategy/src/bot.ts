@@ -1,8 +1,7 @@
 import type { SeededRng } from '@gto/hand-eval'
 import type { Action, DecisionPoint } from '@gto/poker-engine'
-import { handClass } from './hand-class'
 import type { ActionFrequency, ActionId, NodeStrategy, StrategyProvider } from './types'
-import { strategyForHand } from './types'
+import { strategyForCombo } from './types'
 
 /** Sample an actionId from a mix, proportional to frequency, using a seeded RNG. */
 export function sampleActionId(row: ActionFrequency[], rng: SeededRng): ActionId {
@@ -56,7 +55,7 @@ export async function decideGtoAction(
 ): Promise<Action> {
   if (!provider.supports(dp.nodeKey)) return fallbackAction(dp)
   const strategy: NodeStrategy = await provider.getStrategy(dp.nodeKey)
-  const row = strategyForHand(strategy, handClass(dp.heroHoleCards[0], dp.heroHoleCards[1]))
+  const row = strategyForCombo(strategy, dp.heroHoleCards[0], dp.heroHoleCards[1])
   const action = resolveActionId(sampleActionId(row, rng), dp)
   return action ?? fallbackAction(dp)
 }

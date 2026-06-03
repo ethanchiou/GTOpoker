@@ -20,6 +20,7 @@ import { actionLabel, bb } from '../lib/format'
 import { strategyProvider } from '../lib/strategyProvider'
 import { ActionRandomizer } from './ActionRandomizer'
 import { CardPicker, type HoleCards } from './CardPicker'
+import { HandStrength } from './HandStrength'
 import { Card, Label, Segmented } from './LiveSolverUI'
 import { StatStrip, type Stat } from './StatStrip'
 import { StrategyGrid } from './StrategyGrid'
@@ -214,6 +215,8 @@ export function LiveSolverPreflop() {
               </h2>
               {loading && <span className="text-xs text-slate-500">recomputing…</span>}
             </div>
+
+            {bothCards && <HandStrength hole={[cards[0]!, cards[1]!]} />}
 
             {heroHand && strategyRow ? (
               <>

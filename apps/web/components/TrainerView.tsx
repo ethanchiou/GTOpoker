@@ -1,6 +1,6 @@
 'use client'
 
-import { handClass, strategyForHand } from '@gto/strategy'
+import { handClass, strategyForCombo, strategyForHand } from '@gto/strategy'
 import { useEffect } from 'react'
 import { ActionControls } from './ActionControls'
 import { FeedbackPanel } from './FeedbackPanel'
@@ -66,7 +66,14 @@ export function TrainerView() {
   const showingCurrentChart = heroTurn && chartRevealed && strategy !== null
   const gridStrategy = replayStrat ? replayStrat.strategy : showingCurrentChart ? strategy : hasReview ? reviewStrategy : strategy
   const gridHand = replayStrat ? replayStrat.heroHand : showingCurrentChart ? currentHand : hasReview ? reviewHand : currentHand
-  const strategyRow = gridStrategy && gridHand ? strategyForHand(gridStrategy, gridHand) : null
+  // On the *live* decision we hold the concrete cards, so show the combo-specific
+  // mix (a made flush diverges from its class); replay/review fall back to the class row.
+  const liveHeroCards = !replaying && heroTurn && decision ? decision.heroHoleCards : null
+  const strategyRow = gridStrategy && gridHand
+    ? liveHeroCards && gridStrategy === strategy
+      ? strategyForCombo(gridStrategy, liveHeroCards[0], liveHeroCards[1])
+      : strategyForHand(gridStrategy, gridHand)
+    : null
   const canShowStrategy = replayStrat ? true : Boolean(gridStrategy && (chartRevealed || hasReview))
   const postflopTurn = heroTurn && decision !== null && decision.street !== 'preflop'
   const multiwayPostflop = postflopTurn && strategy === null
@@ -130,7 +137,12 @@ export function TrainerView() {
             )}
           </div>
 
-          {heroTurn && decision && !replaying && <DecisionStats decision={decision} strategyRow={strategy && currentHand ? strategyForHand(strategy, currentHand) : null} />}
+          {heroTurn && decision && !replaying && (
+            <DecisionStats
+              decision={decision}
+              strategyRow={strategy ? strategyForCombo(strategy, decision.heroHoleCards[0], decision.heroHoleCards[1]) : null}
+            />
+          )}
 
           <FeedbackPanel score={lastScore} uncharted={Boolean(handDone && !lastScore)} />
           <HandReviewPanel state={state} heroSeat={HERO_SEAT} />

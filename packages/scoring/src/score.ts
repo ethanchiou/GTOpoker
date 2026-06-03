@@ -1,8 +1,7 @@
 import { DEFAULT_SCORING_THRESHOLDS, type ScoringThresholds } from '@gto/domain-config'
 import type { Action, DecisionPoint } from '@gto/poker-engine'
 import {
-  handClass,
-  strategyForHand,
+  strategyForCombo,
   type ActionFrequency,
   type ActionId,
   type NodeStrategy,
@@ -220,6 +219,6 @@ export function scoreFromStrategy(
   strategy: NodeStrategy,
   thresholds?: ScoringThresholds,
 ): DecisionScore {
-  const row = strategyForHand(strategy, handClass(decisionPoint.heroHoleCards[0], decisionPoint.heroHoleCards[1]))
+  const row = strategyForCombo(strategy, decisionPoint.heroHoleCards[0], decisionPoint.heroHoleCards[1])
   return scoreDecision({ chosen, decisionPoint, strategyRow: row, meta: strategy.meta, thresholds })
 }

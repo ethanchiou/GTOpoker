@@ -1,6 +1,8 @@
+import type { HandDescription } from '@gto/hand-eval'
 import type { SeatState } from '@gto/poker-engine'
 import { bb } from '../lib/format'
 import { CardView } from './CardView'
+import { handTone } from './HandStrength'
 
 export function SeatView({
   seat,
@@ -9,6 +11,7 @@ export function SeatView({
   isToAct,
   bigBlindChips,
   lastActionLabel,
+  madeHand,
 }: {
   seat: SeatState
   reveal: boolean
@@ -17,6 +20,8 @@ export function SeatView({
   bigBlindChips: number
   /** When set, this seat made the most recent action (shown as a chip). */
   lastActionLabel?: string
+  /** The seat's current made hand + draws, shown beside the seat (hero only). */
+  madeHand?: HandDescription
 }) {
   const folded = seat.status === 'folded'
   return (
@@ -47,6 +52,17 @@ export function SeatView({
         <div className="font-mono text-[11px] text-slate-400">
           {seat.status === 'allIn' ? 'ALL-IN' : `${bb(seat.stack, bigBlindChips)}bb`}
         </div>
+        {madeHand && (
+          <div className="absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md border border-slate-700 bg-slate-900/90 px-2 py-1 text-left shadow-lg">
+            <div className="text-[8px] font-semibold uppercase tracking-wide text-slate-500">You have</div>
+            <div className={`text-[11px] font-semibold leading-tight ${handTone(madeHand.category)}`}>
+              {madeHand.label}
+            </div>
+            {madeHand.draws.length > 0 && (
+              <div className="text-[9px] font-medium text-sky-300">{madeHand.draws.join(' · ')}</div>
+            )}
+          </div>
+        )}
       </div>
       {seat.committedThisStreet > 0 && (
         <div className="rounded-full bg-yellow-500/90 px-2 text-[10px] font-bold text-slate-950">

@@ -281,6 +281,64 @@ function classMasses(range: Range): ClassMass[] {
   return [...byClass.entries()].map(([cls, mass]) => ({ cls, mass }))
 }
 
+/**
+ * A *board-aware* signature for a concrete combo: its made-hand category plus, on
+ * earlier streets, whether it carries a flush or straight draw. Two combos of the
+ * same preflop class can differ wildly on a given board — A♠5♠ is a made flush on
+ * a three-spade board where A♣5♣ is only ace-high — and this is what splits them.
+ */
+function comboBoardSignature(a: Card, b: Card, board: readonly Card[]): string {
+  if (board.length < 3) return ''
+  const made = categoryOf(evaluateHand([a, b, ...board]))
+  if (board.length >= 5) return `${made}`
+
+  const cards = [a, b, ...board]
+  let flushDraw = 0
+  if (made < HandCategory.Flush) {
+    const suitCount = [0, 0, 0, 0]
+    for (const c of cards) suitCount[suitOf(c)]!++
+    const heroSuits = new Set([suitOf(a), suitOf(b)])
+    for (let s = 0; s < 4; s++) {
+      if (suitCount[s] === 4 && heroSuits.has(s)) {
+        flushDraw = 1
+        break
+      }
+    }
+  }
+  const straightDraw = made < HandCategory.Straight && maxStraightWindowHits(cards) >= 4 ? 1 : 0
+  return `${made}:${flushDraw}:${straightDraw}`
+}
+
+/**
+ * The strategy bucket for a combo: its preflop class refined by the board-aware
+ * signature. On dry boards every combo of a class shares a bucket (so behaviour is
+ * unchanged); on flush/draw-heavy boards the class splits so the made flush, the
+ * flush draw, and the bare ace-high each get their own equity and strategy instead
+ * of one synthetic class representative standing in for all of them.
+ */
+function comboBucketKey(a: Card, b: Card, board: readonly Card[]): string {
+  return `${handClass(a, b)}|${comboBoardSignature(a, b, board)}`
+}
+
+interface HeroBucket {
+  key: string
+  mass: number
+  /** A real combo from the range carrying this signature — drives equity/features. */
+  rep: [Card, Card]
+}
+
+/** Group the hero range into board-aware buckets, keeping a concrete representative. */
+function heroBuckets(range: Range, board: readonly Card[]): HeroBucket[] {
+  const map = new Map<string, HeroBucket>()
+  for (const { hand, weight } of range) {
+    const key = comboBucketKey(hand[0], hand[1], board)
+    const cur = map.get(key)
+    if (cur) cur.mass += weight
+    else map.set(key, { key, mass: weight, rep: [hand[0], hand[1]] })
+  }
+  return [...map.values()]
+}
+
 /** Weighted sampler over class representatives (returns a concrete combo). */
 function makeSampler(masses: ClassMass[], board: readonly Card[], rng: SeededRng): () => [Card, Card] | null {
   const reps: Array<{ combo: [Card, Card] | null; cum: number }> = []
@@ -558,13 +616,16 @@ export class BaselineSolverTransport implements SolverTransport {
         ? villainMasses.reduce((s, { cls, mass }) => s + mass * (1 - (villainEquity.get(cls) ?? 0.5)), 0) /
           totalVillainMass
         : 0.5
-    const contexts = new Map<HandClass, ClassContext>()
-    const equityRows = heroMasses.map(({ cls }) => {
-      const rep = representativeCombo(cls, board)
-      const equity = rep ? equityVsRange(rep, sampleVillain, board, this.iterations, rng) : 0.5
-      const features = rep ? handFeatures(rep, board, profile) : fallbackFeatures(profile)
-      return { cls, equity, features }
-    })
+    // Hero strategy is computed per *board-aware bucket*, not per preflop class, so
+    // the made flush, the flush draw, and the bare high card inside one suited class
+    // each get their own equity/features instead of a single synthetic representative.
+    const buckets = heroBuckets(heroRange, board)
+    const contexts = new Map<string, ClassContext>()
+    const equityRows = buckets.map(({ key, rep }) => ({
+      cls: key,
+      equity: equityVsRange(rep, sampleVillain, board, this.iterations, rng),
+      features: handFeatures(rep, board, profile),
+    }))
     const sorted = [...equityRows].sort((a, b) => a.equity - b.equity)
     const denom = Math.max(1, sorted.length - 1)
     sorted.forEach((row, i) => {
@@ -575,17 +636,17 @@ export class BaselineSolverTransport implements SolverTransport {
       profile.street === 'river' ? 0.55 : 0.75,
       Math.min(4, potBb * (profile.street === 'river' ? 0.12 : profile.street === 'turn' ? 0.16 : 0.22)),
     )
-    const strategyByClass = new Map<HandClass, ActionFrequency[]>()
+    const strategyByBucket = new Map<string, ActionFrequency[]>()
 
-    for (const { cls } of heroMasses) {
-      const ctx = contexts.get(cls) ?? {
-        cls,
+    for (const { key } of buckets) {
+      const ctx = contexts.get(key) ?? {
+        cls: key,
         equity: 0.5,
         percentile: 0.5,
         features: fallbackFeatures(profile),
       }
-      strategyByClass.set(
-        cls,
+      strategyByBucket.set(
+        key,
         this.classStrategy({
           ctx,
           profile,
@@ -605,7 +666,9 @@ export class BaselineSolverTransport implements SolverTransport {
 
     const hero: ComboStrategy[] = heroRange.map(({ hand }) => ({
       hand,
-      actions: strategyByClass.get(handClass(hand[0], hand[1])) ?? [{ actionId: 'fold', frequency: 1, ev: 0 }],
+      actions: strategyByBucket.get(comboBucketKey(hand[0], hand[1], board)) ?? [
+        { actionId: 'fold', frequency: 1, ev: 0 },
+      ],
     }))
 
     return { hero, meta: { confidence: 'low', approximate: true, label: 'baseline' } }
