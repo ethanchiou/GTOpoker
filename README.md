@@ -13,6 +13,11 @@ Early development. Preflop MVP is complete; **Phase 2 (heads-up postflop) is wir
 the play loop trains flop/turn/river decisions with real per-action EV via the `SolverTransport`
 seam and the preflop→flop range handoff (see `spec.md` §16, Phase 2).
 
+Two tabs ship under `/`: the **Trainer** (play + per-decision feedback, now with a **pot odds ·
+chances-to-win · EV** strip) and a **Live Solver** (`spec.md` §9.7) — enter a real spot and get the
+GTO answer with no hand dealt: action mix, sizing, equity, the 13×13 grid, and a "pick for us"
+frequency dial. Preflop today; postflop is the planned follow-up.
+
 By default the postflop EVs come from an in-process, clearly-labeled **baseline transport** (an
 equity-driven approximation, not true GTO). The real **postflop-solver** is wired as a drop-in:
 build its WASM artifact (`packages/solver-worker/BUILD.md`) and flip the web transport to get true
@@ -38,13 +43,15 @@ packages/
   poker-engine    cards, seeded deck/RNG, hand state machine, pots, DecisionPoint
   strategy        StrategyProvider, GameNodeKey, PreflopChartProvider, range/grid math,
                   SolverTransport + preflop→flop range handoff + PostflopSolverProvider
-                  + an equity-based baseline transport
+                  + an equity-based baseline transport; live-solver helpers (equity-vs-range,
+                  pot odds, preflop node-builder, villain continuing range)
   scoring         EV-loss, classification, mixed-strategy credit, bet-size grading
   hand-history    internal records, PokerStars import/export, replay
   solver-worker   Rust→WASM glue crate around postflop-solver (built separately; see BUILD.md)
 data/preflop-charts   6-max preflop range JSON (versioned, rake-tagged, CI-validated)
-apps/web              Next.js client (table, controls, feedback, heatmap, stats;
-                      Web Worker WASM transport scaffold under lib/solver/)
+apps/web              Next.js client — Trainer | Live Solver tabs (table, controls, feedback,
+                      heatmap, stats, card picker, win%/EV/pot-odds strip; Web Worker WASM
+                      transport scaffold under lib/solver/)
 ```
 
 ## Develop

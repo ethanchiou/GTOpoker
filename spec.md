@@ -535,7 +535,8 @@ aggression) — same interface, wrapped.
 ### 9.1 Modes: Play / Study / Analyze (first-class separation)
 
 - **Play** — practice hands vs bots, get per-decision feedback.
-- **Study** — browse GTO solutions, ranges, equity distributions, heatmaps (no grading).
+- **Study** — browse GTO solutions, ranges, equity distributions, heatmaps (no grading). Realized as
+  the **Live Solver** tab (§9.7).
 - **Analyze** — import hand histories, replay with GTO overlays (§9.4).
 
 ### 9.2 Drill modes
@@ -553,7 +554,9 @@ aggression) — same interface, wrapped.
 
 Your action vs the GTO mix · per-action **frequencies** · **EV loss** (real or *estimated* + tagged)
 · **classification** (Best/Correct/Inaccuracy/Wrong/Blunder) · sizing grade (with any snap noted) ·
-the 13×13 strategy grid for the spot.
+the 13×13 strategy grid for the spot. Alongside the panel, a compact **pot odds · chances-to-win ·
+EV** strip surfaces those three numbers for the live decision (the same helper backs the Live Solver,
+§9.7).
 
 ### 9.4 Hand history & replayer
 
@@ -573,6 +576,30 @@ filters (manual spaced repetition).
 13×13 hand grid (rows = first rank, cols = second; suited upper-triangle / offsuit lower) with
 **action-frequency color intensity (heatmap)** · range vs combo display toggle · EV-loss-over-time
 and accuracy charts.
+
+### 9.7 Live Solver (in-page live-play assistant)
+
+An in-page **Live Solver** tab (next to the trainer; both render under `/` via a top-level tab,
+no new route) that realizes the **Study** mode (§9.1): the user enters a real spot and sees the GTO
+answer live, with **no hand dealt**.
+
+- **Inputs** (outputs recompute on every change): hero **seat**; the **action before them** — none
+  (hero opens, RFI) → one opener (facing a raise) → opener + 3-bettor (facing a 3-bet), mapping 1:1
+  onto `classifyPreflop` spot ids (`rfi/<pos>`, `vsRfi/<hero>/vs<opener>`, `vs3bet/<hero>/vs<3bettor>`);
+  and a **two-card hole-card picker** (rank × suit, no dupes).
+- **Outputs**: the action-frequency **mix** + recommended **sizing** (from the chart action ids);
+  **pot odds**; **chances to win** (Monte-Carlo equity of the hand vs the villain's *continuing*
+  range — the §6.4 handoff range + `@gto/hand-eval` equity); per-action **EV** (solver nodes carry
+  it; preflop charts show "—"); and the full 13×13 grid with the hand highlighted.
+- **"Pick for us" dial**: when the mix is non-pure, sample one action weighted by the GTO
+  frequencies (the same weighted sampler the bots use), shown **transparently** (it displays the
+  rolled value and where it landed on the mix). Only acts when asked.
+- **Implementation**: a node-builder fabricates a `GameNodeKey` + chip context (pot / to-call /
+  effective-stack, deterministic from blinds + standard open/3-bet sizes) for a chosen line **without
+  playing a hand**; everything else reuses the existing seam (provider, range handoff, grid, mix).
+- **Scope**: v1 is **preflop-only**. Turn/river is a planned follow-up — the same inputs/outputs and
+  components extend once a board picker + bet-size inputs are added (the postflop solver provider
+  already serves those nodes), so shared helpers are kept street-agnostic.
 
 ---
 
