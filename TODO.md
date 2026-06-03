@@ -25,10 +25,10 @@
 - Documented the baseline→WASM `SolverTransport` swap tradeoffs in `spec.md` §6.5 (benefits, costs incl. AGPL-3.0 + unverified `lib.rs`, why baseline stays default).
 - **Live Solver postflop richer action lines:** the fabricated postflop node builder/UI now supports typed action-line presets for flop check-check → turn, flop bet-call → turn, turn bet-call → river, hero bet facing raise, villain donk bets, delayed c-bets, and probe nodes. The builder derives current-street commitments, to-call, min-raise, effective stack, and exact-size preview fractions for the shared postflop solver path.
 - **Live Solver postflop browser QA:** verified the full postflop flow in headless Chrome across all action-line presets, board/hole-card collision handling, manual bet controls, hero bet-vs-raise sliders, preflop pot/aggressor changes, seat swaps, and mobile layout. Fixed the board-picker active-slot edge case when expanding flop → turn/river and added the app icon so browser resource loading is clean.
+- **Postflop Live Solver UX polish:** added street-size preset buttons beside the exact-size preview slider, an All-in shortcut, best action / best bet-or-raise summaries, and EV delta versus the user's exact preview size. Shared helper logic lives in `packages/strategy/src/live-solver-analysis.ts` with tests; UI wiring lives in `apps/web/components/LiveSolverPostflop.tsx`. Verified with package checks, web typecheck/build, and desktop/mobile headless Chrome smoke checks.
 
 ## Next
 
-2. **Postflop Live Solver UX polish:** add street-size preset buttons beside the exact-size slider, show best action / best size, and show EV delta versus the user's preview slider size.
 3. **Shareable Live Solver spots:** persist Live Solver inputs in URL params so spots can be copied, debugged, and regression-tested.
 4. **Real WASM solver:** build the postflop-solver WASM artifact (`packages/solver-worker/BUILD.md`), switch the web transport from baseline to WASM, keep baseline fallback, and resolve the known facing-a-bet navigation TODO.
 5. **Solver correctness validation:** validate range handoff and postflop outputs against the WASM/Postflop reference solver within tolerances (spec §15 Phase 2).

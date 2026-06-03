@@ -1,3 +1,4 @@
+import { describeHolding } from '@gto/hand-eval'
 import type { ActionRecord, HandState } from '@gto/poker-engine'
 import { actionShort, bb } from '../lib/format'
 import { CardView } from './CardView'
@@ -51,6 +52,11 @@ export function PokerTable({
         const slot = (seat.seatIndex - heroSeat + n) % n
         const pos = SLOTS[slot]!
         const reveal = seat.isHero || complete
+        // The hero's current made hand, shown beside their seat once a board is out.
+        const madeHand =
+          seat.isHero && reveal && seat.status !== 'folded' && state.board.length >= 3
+            ? describeHolding(seat.holeCards, state.board)
+            : undefined
         return (
           <div
             key={seat.seatIndex}
@@ -68,6 +74,7 @@ export function PokerTable({
                   ? actionShort(lastAction.action, state.config.bigBlindChips)
                   : undefined
               }
+              madeHand={madeHand}
             />
           </div>
         )

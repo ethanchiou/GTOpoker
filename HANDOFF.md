@@ -2,9 +2,9 @@
 
 > Working handoff for the next engineer/agent. Pairs with [`spec.md`](./spec.md)
 > (full design), [`README.md`](./README.md) (overview), and [`TODO.md`](./TODO.md)
-> (running task log). Last updated: 2026-06-03 — Live Solver postflop richer
-> action lines are shipped and browser-QA'd. **Immediate next task:** task 2,
-> postflop Live Solver UX polish; see §2.1 below. Remaining tasks 2-7 are tracked
+> (running task log). Last updated: 2026-06-03 — Postflop Live Solver UX polish
+> is shipped and browser-QA'd. **Immediate next task:** task 3, shareable Live
+> Solver spots; see §2.1 below. Remaining tasks 3-7 are tracked
 > there and in `TODO.md`.
 
 ## 1. What this is
@@ -48,7 +48,7 @@ solver") so it's never mistaken for GTO.
   - **Shared core helpers** (in `@gto/strategy` for CI coverage): `equityVsRange` + `potOddsPct` (`equity-vs-range.ts`), `buildPreflopLineNode` + `positionsBefore/After` (`live-node.ts`), and `villainContinuingRange` (`range-handoff.ts`). Tests: `equity-vs-range.test.ts`, `live-node.test.ts`. The web provider construction was extracted to `apps/web/lib/strategyProvider.ts` so both tabs share one provider + solve cache.
   - **spec.md §6.5** — the baseline→WASM transport-swap tradeoffs (benefits / costs / why baseline stays default).
 
-## 2.1 Immediate next task: task 2, postflop Live Solver UX polish
+## 2.1 Immediate next task: task 3, shareable Live Solver spots
 
 Browser QA for task 1 is complete. It exercised `/` → `Live Solver` → `Postflop`
 in headless Chrome across every action-line preset, board/hole-card collision
@@ -58,10 +58,15 @@ or failed-network errors remained after adding `apps/web/app/icon.svg`. QA also
 found and fixed a `BoardPicker` active-slot edge case where switching a completed
 flop to turn/river could replace a flop card instead of filling the new empty slot.
 
+Task 2 is now complete: postflop Live Solver has street-size preset buttons next
+to the exact-size slider, a best-action / best-size / preview-delta summary, and
+an exact-size readout showing EV delta vs the best action. The pure sizing and
+row-analysis helpers live in `packages/strategy/src/live-solver-analysis.ts` with
+CI tests; the UI is in `apps/web/components/LiveSolverPostflop.tsx`. Verified with
+`pnpm run check` (157 tests), `apps/web` tsc, `next build`, and headless Chrome
+desktop/mobile smoke checks against `Live Solver → Postflop`.
+
 Remaining next tasks:
-2. **Postflop Live Solver UX polish:** add street-size preset buttons beside the
-   exact-size slider, show best action / best size, and show EV delta versus the
-   user's preview slider size.
 3. **Shareable Live Solver spots:** persist Live Solver inputs in URL params so
    spots can be copied, debugged, and regression-tested.
 4. **Real WASM solver:** build the postflop-solver WASM artifact
@@ -176,6 +181,14 @@ for reference. **Clean follow-ups left open** (none blocking):
   BTN open) isn't in the line's flop range, so the UI shows an explicit "not in range"
   note instead of a misleading pure-fold mix — pick a hand that continues the line or
   switch the pot type.
+- **Postflop Live Solver UX polish — ✅ SHIPPED 2026-06-03 (verified in-browser).**
+  The postflop exact-size preview now has street-size preset buttons from the same
+  postflop size tree the solver evaluates, plus an All-in shortcut. The answer panel
+  shows **best action**, **best bet/raise size**, and **preview delta** against the
+  best-EV action; the slider readout also shows `Δ vs best`. Pure helpers are in
+  `strategy/live-solver-analysis.ts` with tests, and the UI wiring is in
+  `components/LiveSolverPostflop.tsx`. Verified desktop + mobile width in headless
+  Chrome with no runtime/console issues.
 - **Live Solver EV** — preflop shows "—" (charts carry no EV). Real EVs arrive with the
   WASM solver (§6.5) for postflop, or solved preflop data for preflop.
 - **Live Solver state** is component-local and resets when you switch tabs (trainer

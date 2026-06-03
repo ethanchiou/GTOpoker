@@ -7,12 +7,16 @@ import {
   equityVsRange,
   handClass,
   POSTFLOP_BOARD_LEN,
+  analyzeActionRow,
   potFractionForBetTo,
   potOddsPct,
-  strategyForHand,
+  postflopSizePresets,
+  raiseToBb,
+  strategyForCombo,
   villainContinuingRange,
   type ActionFrequency,
   type NodeStrategy,
+  type PostflopSizePreset,
   type PostflopActionActor,
   type PostflopActionLine,
   type PostflopActionLinePreset,
@@ -20,6 +24,7 @@ import {
   type PostflopPotType,
   type PostflopStreet,
   type PreflopAggressor,
+  type StrategyRowAnalysis,
 } from '@gto/strategy'
 import { useEffect, useMemo, useState } from 'react'
 import { actionLabel, bb } from '../lib/format'
@@ -27,6 +32,7 @@ import { postflopProvider, strategyProvider } from '../lib/strategyProvider'
 import { ActionRandomizer } from './ActionRandomizer'
 import { BoardPicker } from './BoardPicker'
 import { CardPicker, type HoleCards } from './CardPicker'
+import { HandStrength } from './HandStrength'
 import { Card as Panel, Label, Segmented } from './LiveSolverUI'
 import { StatStrip, type Stat } from './StatStrip'
 import { StrategyGrid } from './StrategyGrid'
@@ -258,9 +264,22 @@ export function LiveSolverPostflop() {
   // showing a misleading pure-fold mix.
   const heroInRange = Boolean(strategy && heroHand && strategy.grid[heroHand])
   const row: ActionFrequency[] | null =
-    strategy && heroHand && heroInRange ? strategyForHand(strategy, heroHand) : null
+    strategy && bothCards && heroInRange ? strategyForCombo(strategy, cards[0]!, cards[1]!) : null
   const potOdds = node && (node.toCallChips ?? 0) > 0 ? potOddsPct(node.toCallChips ?? 0, node.potChips ?? 0) : null
   const yourSize = row ? findYourSize(row, heroBet, isAllInPreview) : null
+  const analysis = row ? analyzeActionRow(row, yourSize) : null
+  const sizePresets = node
+    ? postflopSizePresets({
+        street,
+        facing: facingBet,
+        potChips: node.potChips ?? 0,
+        toCallChips: node.toCallChips ?? 0,
+        heroCommittedChips,
+        villainCommittedChips,
+        min: heroBetMin,
+        max: heroBetMax,
+      })
+    : []
 
   const stats: Stat[] = [
     {
@@ -276,8 +295,8 @@ export function LiveSolverPostflop() {
     },
     {
       label: 'EV (approx)',
-      value: row ? evHeadline(row) : '—',
-      hint: 'baseline solver',
+      value: analysis?.bestAction.ev !== undefined ? evText(analysis.bestAction.ev) : '—',
+      hint: analysis?.bestAction ? actionSummaryLabel(analysis.bestAction.actionId, facingBet) : 'baseline solver',
       tone: 'amber',
     },
   ]
@@ -457,9 +476,11 @@ export function LiveSolverPostflop() {
               postflop-solver WASM is built). Frequencies and the mix are directional.
             </p>
 
+            {bothCards && <HandStrength hole={[cards[0]!, cards[1]!]} board={boardCards} />}
+
             {heroHand && row ? (
               <>
-                <Recommendation row={row} facing={facingBet} />
+                <Recommendation analysis={analysis} facing={facingBet} />
                 <StatStrip stats={stats} />
                 <BetSlider
                   facing={facingBet}
@@ -469,6 +490,8 @@ export function LiveSolverPostflop() {
                   onChange={setHeroBetChips}
                   fraction={previewFraction}
                   yourSize={yourSize}
+                  previewDelta={analysis?.previewDeltaVsBest ?? null}
+                  presets={sizePresets}
                   allIn={isAllInPreview}
                 />
                 <StrategyMix row={row} title={`${heroHand} mix`} />
@@ -777,6 +800,8 @@ function BetSlider({
   onChange,
   fraction,
   yourSize,
+  previewDelta,
+  presets,
   allIn,
 }: {
   facing: boolean
@@ -786,6 +811,8 @@ function BetSlider({
   onChange: (v: number) => void
   fraction: number
   yourSize: ActionFrequency | null
+  previewDelta: number | null
+  presets: PostflopSizePreset[]
   allIn: boolean
 }) {
   const verb = facing ? 'Raise to' : 'Bet'
@@ -800,16 +827,41 @@ function BetSlider({
         </span>
       </div>
       {usable ? (
-        <input
-          type="range"
-          aria-label="My bet size"
-          min={min}
-          max={max}
-          step={25}
-          value={value}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="h-1.5 w-full cursor-pointer accent-red-500"
-        />
+        <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+          <input
+            type="range"
+            aria-label="My bet size"
+            min={min}
+            max={max}
+            step={25}
+            value={value}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="h-1.5 w-full cursor-pointer accent-red-500"
+          />
+          {presets.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 md:justify-end">
+              {presets.map((preset) => {
+                const active = Math.abs(value - preset.chips) <= 12
+                const label = presetLabel(preset)
+                return (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    onClick={() => onChange(preset.chips)}
+                    aria-label={`Set ${label} ${preset.allIn ? 'size' : 'pot size'}`}
+                    className={`rounded border px-2 py-1 text-xs font-semibold transition ${
+                      active
+                        ? 'border-amber-300 bg-amber-300 text-slate-950'
+                        : 'border-slate-700 text-slate-300 hover:border-slate-500 hover:bg-slate-800'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
       ) : (
         <p className="text-xs text-slate-500">No room to {facing ? 'raise' : 'bet'} — stacks are committed.</p>
       )}
@@ -828,6 +880,13 @@ function BetSlider({
                 </span>
               </>
             )}
+            {previewDelta !== null && (
+              <>
+                {' '}
+                · Δ vs best{' '}
+                <span className={deltaTextClass(previewDelta)}>{deltaText(previewDelta)}</span>
+              </>
+            )}
           </span>
         ) : (
           <span className="text-slate-500">Slide to see how GTO treats that exact size.</span>
@@ -837,25 +896,58 @@ function BetSlider({
   )
 }
 
-/** One-line headline of the dominant GTO action at the node. */
-function Recommendation({ row, facing }: { row: ActionFrequency[]; facing: boolean }) {
-  const sorted = [...row].filter((a) => a.frequency > 0.005).sort((a, b) => b.frequency - a.frequency)
-  const top = sorted[0]
-  if (!top) return null
-  const pure = top.frequency > 0.999
-  const aggregateRaise = row
-    .filter((a) => a.actionId === 'allIn' || a.actionId.startsWith('raiseTo:'))
-    .reduce((s, a) => s + a.frequency, 0)
+/** Best-EV summary for the solved row plus the user's exact-size preview. */
+function Recommendation({ analysis, facing }: { analysis: StrategyRowAnalysis | null; facing: boolean }) {
+  if (!analysis) return null
+  const delta = analysis.previewDeltaVsBest
   return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
-      <span className="text-amber-200">
-        {pure ? 'Always ' : 'Mostly '}
-        <span className="font-semibold text-amber-100">{actionLabel(top.actionId)}</span>
-        {!pure && <span className="text-amber-200/80"> ({(top.frequency * 100).toFixed(0)}%)</span>}
-        {!pure && aggregateRaise > 0.005 && !top.actionId.startsWith('raiseTo') && top.actionId !== 'allIn' && (
-          <span className="text-amber-200/80"> · {facing ? 'raise' : 'bet'} {(aggregateRaise * 100).toFixed(0)}%</span>
-        )}
-      </span>
+    <div className="grid gap-2 sm:grid-cols-3">
+      <RecommendationCell
+        label="Best action"
+        value={actionSummaryLabel(analysis.bestAction.actionId, facing)}
+        hint={actionHint(analysis.bestAction)}
+        tone="green"
+      />
+      <RecommendationCell
+        label={facing ? 'Best raise' : 'Best bet'}
+        value={analysis.bestAggressive ? sizeActionLabel(analysis.bestAggressive.actionId, facing) : 'No bet/raise'}
+        hint={analysis.bestAggressive ? actionHint(analysis.bestAggressive) : 'best EV is passive'}
+        tone={analysis.bestAggressive ? 'amber' : 'default'}
+      />
+      <RecommendationCell
+        label="Preview delta"
+        value={delta !== null ? deltaText(delta) : '—'}
+        hint={delta !== null ? 'vs best action' : 'no exact-size EV'}
+        tone={deltaTone(delta)}
+      />
+    </div>
+  )
+}
+
+function RecommendationCell({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string
+  value: string
+  hint: string
+  tone: 'default' | 'amber' | 'green' | 'red'
+}) {
+  const toneClass =
+    tone === 'green'
+      ? 'text-emerald-300'
+      : tone === 'amber'
+        ? 'text-amber-300'
+        : tone === 'red'
+          ? 'text-red-300'
+          : 'text-slate-100'
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-900/50 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
+      <div className={`mt-0.5 break-words text-sm font-semibold leading-snug ${toneClass}`}>{value}</div>
+      <div className="mt-1 text-[10px] text-slate-500">{hint}</div>
     </div>
   )
 }
@@ -868,27 +960,69 @@ function Recommendation({ row, facing }: { row: ActionFrequency[]; facing: boole
 function findYourSize(row: ActionFrequency[], targetChips: number, allIn: boolean): ActionFrequency | null {
   if (allIn) {
     const ai = row.find((a) => a.actionId === 'allIn')
-    if (ai) return ai
+    return ai ?? null
   }
   const targetBb = targetChips / BB_CHIPS
   let best: ActionFrequency | null = null
   let bestDiff = Infinity
   for (const a of row) {
-    if (!a.actionId.startsWith('raiseTo:')) continue
-    const diff = Math.abs(Number(a.actionId.slice('raiseTo:'.length)) - targetBb)
+    const raiseTo = raiseToBb(a.actionId)
+    if (raiseTo === null) continue
+    const diff = Math.abs(raiseTo - targetBb)
     if (diff < bestDiff) {
       bestDiff = diff
       best = a
     }
   }
-  return best
+  return bestDiff <= 0.26 ? best : null
 }
 
-/** Headline EV: the EV of the action GTO takes most often. */
-function evHeadline(row: ActionFrequency[]): string {
-  const top = [...row].sort((a, b) => b.frequency - a.frequency)[0]
-  if (!top || top.ev === undefined) return '—'
-  return `${top.ev >= 0 ? '+' : ''}${top.ev.toFixed(2)}bb`
+function sizeActionLabel(actionId: string, facing: boolean): string {
+  if (actionId === 'allIn') return 'All-in'
+  const raiseTo = raiseToBb(actionId)
+  if (raiseTo === null) return actionLabel(actionId)
+  return `${facing ? 'Raise' : 'Bet'} ${formatBbValue(raiseTo)}bb`
+}
+
+function actionSummaryLabel(actionId: string, facing: boolean): string {
+  return actionId === 'allIn' || raiseToBb(actionId) !== null ? sizeActionLabel(actionId, facing) : actionLabel(actionId)
+}
+
+function actionHint(action: ActionFrequency): string {
+  const parts = [`${(action.frequency * 100).toFixed(0)}% mix`]
+  if (action.ev !== undefined) parts.push(`${evText(action.ev)} EV`)
+  return parts.join(' · ')
+}
+
+function evText(ev: number): string {
+  return `${ev >= 0 ? '+' : ''}${ev.toFixed(2)}bb`
+}
+
+function deltaText(delta: number): string {
+  return `${delta > 0 ? '+' : ''}${delta.toFixed(2)}bb`
+}
+
+function deltaTone(delta: number | null): 'default' | 'amber' | 'green' | 'red' {
+  if (delta === null) return 'default'
+  if (delta >= -0.01) return 'green'
+  if (delta >= -0.25) return 'amber'
+  return 'red'
+}
+
+function deltaTextClass(delta: number): string {
+  const tone = deltaTone(delta)
+  if (tone === 'green') return 'font-mono text-emerald-300'
+  if (tone === 'amber') return 'font-mono text-amber-300'
+  if (tone === 'red') return 'font-mono text-red-300'
+  return 'font-mono text-slate-100'
+}
+
+function formatBbValue(value: number): string {
+  return Number.isInteger(value) ? `${value}` : value.toFixed(2).replace(/\.?0+$/, '')
+}
+
+function presetLabel(preset: PostflopSizePreset): string {
+  return preset.fraction === null ? 'All-in' : `${Math.round(preset.fraction * 100)}%`
 }
 
 /** Format a bet as a percent of the given pot (chips). */

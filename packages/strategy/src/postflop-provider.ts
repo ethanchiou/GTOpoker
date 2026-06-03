@@ -3,7 +3,7 @@ import type { GameNodeKey } from '@gto/poker-engine'
 import { handClass, type HandClass } from './hand-class'
 import { buildPreflopRange, inHandPositions } from './range-handoff'
 import type { ComboStrategy, Range, SolverTransport } from './postflop-types'
-import type { ActionFrequency, ActionId, NodeStrategy, StrategyProvider } from './types'
+import { comboKey, type ActionFrequency, type ActionId, type NodeStrategy, type StrategyProvider } from './types'
 
 /** The postflop streets the provider sizes for. */
 type PostflopStreet = 'flop' | 'turn' | 'river'
@@ -117,10 +117,13 @@ export class PostflopSolverProvider implements StrategyProvider {
     })
 
     const grid = aggregateToGrid(result.hero, heroRange)
+    const comboGrid: Record<string, ActionFrequency[]> = {}
+    for (const cs of result.hero) comboGrid[comboKey(cs.hand[0], cs.hand[1])] = cs.actions
     return {
       spotId: `postflop/${node.street}/${heroPos}v${villainPos}`,
       actions: actionOrder(grid),
       grid,
+      comboGrid,
       meta: {
         source: 'solver',
         confidence: result.meta.confidence,
@@ -219,10 +222,6 @@ function aggregateToGrid(hero: ComboStrategy[], range: Range): Record<HandClass,
     grid[cls] = row
   }
   return grid
-}
-
-function comboKey(a: number, b: number): string {
-  return a < b ? `${a}-${b}` : `${b}-${a}`
 }
 
 /** Postflop action order, earliest (most out-of-position) first. */

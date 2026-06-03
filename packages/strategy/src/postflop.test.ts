@@ -8,6 +8,7 @@ import type { Range, SolveRequest, SolveResult, SolverTransport } from './postfl
 import { PreflopChartProvider } from './preflop-chart'
 import { buildPreflopRange, inHandPositions } from './range-handoff'
 import { SEED_CHART } from './seed-chart'
+import { comboKey, strategyForCombo, type NodeStrategy } from './types'
 
 const preflop = new PreflopChartProvider(SEED_CHART)
 
@@ -189,6 +190,37 @@ describe('BaselineSolverTransport', () => {
     expect(freq(air!, 'fold')).toBeGreaterThan(0.9)
   })
 
+  it('distinguishes the made-flush combo from the non-flush combo of the same suited class', async () => {
+    const transport = new BaselineSolverTransport({ iterations: 400 })
+    const res = await transport.solve({
+      board: [c('Ks'), c('9s'), c('2s')], // three spades — a flush is possible
+      heroRange: [
+        { hand: combo('As', '5s'), weight: 1 }, // nut flush
+        { hand: combo('Ac', '5c'), weight: 1 }, // ace-high, no flush — same class A5s
+      ],
+      villainRange: [
+        { hand: combo('Kd', 'Qd'), weight: 1 },
+        { hand: combo('Jh', 'Th'), weight: 1 },
+        { hand: combo('7c', '7d'), weight: 1 },
+        { hand: combo('Ad', 'Td'), weight: 1 },
+        { hand: combo('8h', '8d'), weight: 1 },
+      ],
+      potChips: 600,
+      effectiveStackChips: 5_000,
+      bigBlindChips: 100,
+      toCallChips: 0,
+      betFractions: [0.33, 0.75],
+    })
+
+    const [flush, aceHigh] = res.hero.map((h) => h.actions)
+    const aggression = (row: { actionId: string; frequency: number }[]) =>
+      row.filter((a) => a.actionId !== 'check').reduce((s, a) => s + a.frequency, 0)
+    // Both are class A5s, but only A♠5♠ makes the flush — it must value-bet far
+    // more than the ace-high combo, which mostly checks.
+    expect(aggression(flush!)).toBeGreaterThan(0.5)
+    expect(aggression(flush!)).toBeGreaterThan(aggression(aceHigh!) + 0.3)
+  })
+
   it('keeps turn raises for strong value and selected draws while folding no-equity hands', async () => {
     const transport = new BaselineSolverTransport({ iterations: 300 })
     const res = await transport.solve({
@@ -309,5 +341,49 @@ describe('PostflopSolverProvider', () => {
     expect(transport.requests[0]!.heroCommittedThisStreetChips).toBe(0)
     expect(transport.requests[0]!.villainCommittedThisStreetChips).toBe(500)
     expect(transport.requests[0]!.minRaiseToChips).toBe(1_000)
+  })
+
+  it('exposes per-combo strategy so a made flush diverges from its class average', async () => {
+    const strat = await provider.getStrategy({
+      street: 'flop',
+      heroPosition: 'BTN',
+      board: [c('Ks'), c('9s'), c('2s')], // monotone spades — flushes are live
+      history: BTN_VS_BB_HISTORY,
+      potChips: 600,
+      effectiveStackChips: 9_750,
+      toCallChips: 0,
+      bigBlindChips: 100,
+    })
+
+    expect(strat.comboGrid).toBeDefined()
+    expect(Object.keys(strat.comboGrid!).length).toBeGreaterThan(0)
+
+    // At least one preflop class must now carry two different per-combo mixes: the
+    // two-spade combo makes a flush where its class-mates are only high cards.
+    const sigsByClass = new Map<string, Set<string>>()
+    for (const [key, row] of Object.entries(strat.comboGrid!)) {
+      const [a, b] = key.split(':').map(Number) as [number, number]
+      const sig = row.map((r) => `${r.actionId}:${r.frequency}`).sort().join('|')
+      const set = sigsByClass.get(handClass(a, b)) ?? new Set<string>()
+      set.add(sig)
+      sigsByClass.set(handClass(a, b), set)
+    }
+    expect([...sigsByClass.values()].some((s) => s.size > 1)).toBe(true)
+
+    // strategyForCombo returns the per-combo row, not the class average.
+    const flushKey = comboKey(c('As'), c('5s'))
+    if (strat.comboGrid![flushKey]) {
+      expect(strategyForCombo(strat, c('As'), c('5s'))).toBe(strat.comboGrid![flushKey])
+    }
+  })
+
+  it('strategyForCombo falls back to the class grid when no per-combo row exists', () => {
+    const strat: NodeStrategy = {
+      spotId: 'chart',
+      actions: ['call'],
+      grid: { AKs: [{ actionId: 'call', frequency: 1 }] },
+      meta: { source: 'chart', confidence: 'low', rakeAssumption: '', version: 'x' },
+    }
+    expect(strategyForCombo(strat, c('As'), c('Ks'))).toEqual([{ actionId: 'call', frequency: 1 }])
   })
 })
