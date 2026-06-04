@@ -38,7 +38,7 @@ export const BOT_SPEEDS = [
   { label: 'Slow', scale: 1.8 },
 ] as const
 
-const DEFAULT_SETTINGS: Settings = { botTimeScale: 1, showFullHand: false }
+const DEFAULT_SETTINGS: Settings = { botTimeScale: 0, showFullHand: false }
 const SETTINGS_KEY = 'gto-trainer-settings'
 
 function loadSettings(): Settings {
