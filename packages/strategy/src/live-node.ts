@@ -28,6 +28,8 @@ export type PreflopLine =
   | { kind: 'vsRfi'; hero: Position; opener: Position }
   /** Hero is the opener facing a 3-bet from `threeBettor`. */
   | { kind: 'vs3bet'; hero: Position; threeBettor: Position }
+  /** Hero is the 3-bettor facing a 4-bet from the opener (`fourBettor`). */
+  | { kind: 'vs4bet'; hero: Position; fourBettor: Position }
 
 export interface PreflopLineNode {
   node: GameNodeKey
@@ -49,6 +51,11 @@ function openToChips(opener: Position): number {
 /** Standard 3-bet size (bb), aligned with the seed vs-RFI charts (BB ~11, SB ~10). */
 function threeBetToChips(threeBettor: Position): number {
   return Math.round((threeBettor === 'SB' ? 10 : 11) * BB)
+}
+
+/** Standard 4-bet size (chips) — ~2.25× the 3-bet, aligned with the seed vs-3bet charts (~25bb). */
+function fourBetToChips(threeBetChips: number): number {
+  return Math.round(threeBetChips * 2.25)
 }
 
 function rec(position: Position, action: Action, street: Street = 'preflop'): ActionRecord {
@@ -88,7 +95,7 @@ export function buildPreflopLineNode(line: PreflopLine): PreflopLineNode {
     villainCommit = openTo
     pot = openTo + heroCommit + deadBlinds([line.opener, hero])
     toCall = openTo - heroCommit
-  } else {
+  } else if (line.kind === 'vs3bet') {
     const openTo = openToChips(hero)
     const threeBetTo = threeBetToChips(line.threeBettor)
     history = [
@@ -100,6 +107,21 @@ export function buildPreflopLineNode(line: PreflopLine): PreflopLineNode {
     villainCommit = threeBetTo
     pot = threeBetTo + openTo + deadBlinds([hero, line.threeBettor])
     toCall = threeBetTo - openTo
+  } else {
+    // vs4bet: the opener opens, the hero 3-bets, the opener 4-bets back.
+    const openTo = openToChips(line.fourBettor)
+    const threeBetTo = threeBetToChips(hero)
+    const fourBetTo = fourBetToChips(threeBetTo)
+    history = [
+      rec(line.fourBettor, { type: 'raise', amount: openTo }),
+      rec(hero, { type: 'raise', amount: threeBetTo }),
+      rec(line.fourBettor, { type: 'raise', amount: fourBetTo }),
+    ]
+    villain = line.fourBettor
+    heroCommit = threeBetTo
+    villainCommit = fourBetTo
+    pot = fourBetTo + threeBetTo + deadBlinds([line.fourBettor, hero])
+    toCall = fourBetTo - threeBetTo
   }
 
   const node: GameNodeKey = {

@@ -28,12 +28,13 @@ import { StatStrip, type Stat } from './StatStrip'
 import { StrategyGrid } from './StrategyGrid'
 import { StrategyMix } from './StrategyMix'
 
-type LineKind = 'rfi' | 'vsRfi' | 'vs3bet'
+type LineKind = 'rfi' | 'vsRfi' | 'vs3bet' | 'vs4bet'
 
 const LINE_OPTIONS: { kind: LineKind; label: string }[] = [
   { kind: 'rfi', label: 'No raise (you open)' },
   { kind: 'vsRfi', label: 'Facing a raise' },
   { kind: 'vs3bet', label: 'You opened, facing a 3-bet' },
+  { kind: 'vs4bet', label: 'You 3-bet, facing a 4-bet' },
 ]
 
 /** Resolve the UI selections into a concrete preflop line, or an error to show. */
@@ -42,6 +43,7 @@ function resolveLine(
   kind: LineKind,
   opener: Position | null,
   threeBettor: Position | null,
+  fourBettor: Position | null,
 ): { line: PreflopLine } | { error: string } {
   if (kind === 'rfi') {
     if (hero === 'BB') return { error: 'The big blind is never first-in. Pick another seat or an action line.' }
@@ -53,10 +55,17 @@ function resolveLine(
     const o = opener && openers.includes(opener) ? opener : openers[openers.length - 1]!
     return { line: { kind: 'vsRfi', hero, opener: o } }
   }
-  const tbs = positionsAfter(hero)
-  if (tbs.length === 0) return { error: 'The big blind acts last — no one can 3-bet over it.' }
-  const tb = threeBettor && tbs.includes(threeBettor) ? threeBettor : tbs[0]!
-  return { line: { kind: 'vs3bet', hero, threeBettor: tb } }
+  if (kind === 'vs3bet') {
+    const tbs = positionsAfter(hero)
+    if (tbs.length === 0) return { error: 'The big blind acts last — no one can 3-bet over it.' }
+    const tb = threeBettor && tbs.includes(threeBettor) ? threeBettor : tbs[0]!
+    return { line: { kind: 'vs3bet', hero, threeBettor: tb } }
+  }
+  // vs4bet: hero 3-bet an earlier opener, who 4-bet back. The 4-bettor acts before hero.
+  const fbs = positionsBefore(hero)
+  if (fbs.length === 0) return { error: 'UTG acts first — it cannot have 3-bet over an earlier open.' }
+  const fb = fourBettor && fbs.includes(fourBettor) ? fourBettor : fbs[fbs.length - 1]!
+  return { line: { kind: 'vs4bet', hero, fourBettor: fb } }
 }
 
 interface Outcome {
@@ -78,6 +87,7 @@ function initialInputs() {
     lineKind: s?.lineKind ?? ('vsRfi' as LineKind),
     opener: s?.opener ?? null,
     threeBettor: s?.threeBettor ?? null,
+    fourBettor: s?.fourBettor ?? null,
     cards: holeFromCards(s?.cards),
   }
 }
@@ -88,6 +98,7 @@ export function LiveSolverPreflop() {
   const [lineKind, setLineKind] = useState<LineKind>(seed.lineKind)
   const [opener, setOpener] = useState<Position | null>(seed.opener)
   const [threeBettor, setThreeBettor] = useState<Position | null>(seed.threeBettor)
+  const [fourBettor, setFourBettor] = useState<Position | null>(seed.fourBettor)
   const [cards, setCards] = useState<HoleCards>(seed.cards)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
   const [loading, setLoading] = useState(false)
@@ -101,13 +112,14 @@ export function LiveSolverPreflop() {
       lineKind,
       opener,
       threeBettor,
+      fourBettor,
       cards: cards.filter((c): c is CardCode => c !== null),
     })
-  }, [hero, lineKind, opener, threeBettor, cards])
+  }, [hero, lineKind, opener, threeBettor, fourBettor, cards])
 
   const resolved = useMemo(
-    () => resolveLine(hero, lineKind, opener, threeBettor),
-    [hero, lineKind, opener, threeBettor],
+    () => resolveLine(hero, lineKind, opener, threeBettor, fourBettor),
+    [hero, lineKind, opener, threeBettor, fourBettor],
   )
   const lineError = 'error' in resolved ? resolved.error : null
   const line = 'line' in resolved ? resolved.line : null
@@ -220,6 +232,21 @@ export function LiveSolverPreflop() {
           </div>
         )}
 
+        {lineKind === 'vs4bet' && positionsBefore(hero).length > 0 && (
+          <div>
+            <Label>Who 4-bet you</Label>
+            <Segmented
+              options={positionsBefore(hero).map((p) => ({ value: p, label: p }))}
+              value={
+                (line && line.kind === 'vs4bet'
+                  ? line.fourBettor
+                  : positionsBefore(hero)[positionsBefore(hero).length - 1]!) as Position
+              }
+              onChange={(p) => setFourBettor(p)}
+            />
+          </div>
+        )}
+
         <div>
           <Label>Your hand</Label>
           <CardPicker value={cards} onChange={setCards} />
@@ -235,8 +262,9 @@ export function LiveSolverPreflop() {
         ) : outcome && !outcome.supported ? (
           <Card>
             <p className="text-sm text-amber-300">
-              No charted strategy for {describeSpot(line!)} yet. The seed charts cover standard RFI,
-              single-raise, and opener-vs-3-bet spots — cold 4-bets and deeper trees are unmodelled.
+              No charted strategy for {describeSpot(line!)} yet. The seed charts cover RFI, single-raise,
+              and the 3-bet/4-bet/5-bet tree; multiway pots (squeezes, cold 4-bets) use a low-confidence
+              approximation in the trainer but aren’t selectable here yet.
             </p>
           </Card>
         ) : outcome?.strategy ? (
@@ -305,5 +333,6 @@ function Recommendation({ hand, row, bigBlindChips }: { hand: string; row: Actio
 function describeSpot(line: PreflopLine): string {
   if (line.kind === 'rfi') return `rfi/${line.hero}`
   if (line.kind === 'vsRfi') return `vsRfi/${line.hero}/vs${line.opener}`
-  return `vs3bet/${line.hero}/vs${line.threeBettor}`
+  if (line.kind === 'vs3bet') return `vs3bet/${line.hero}/vs${line.threeBettor}`
+  return `vs4bet/${line.hero}/vs${line.fourBettor}`
 }
