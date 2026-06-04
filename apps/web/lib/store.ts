@@ -1,3 +1,4 @@
+import { buttonIndexFor, POSITIONS_6MAX, type Position } from '@gto/domain-config'
 import { createRng, type SeededRng } from '@gto/hand-eval'
 import {
   applyAction,
@@ -23,11 +24,19 @@ import {
 } from '@gto/scoring'
 import { create } from 'zustand'
 
+/**
+ * How the hero's seat is chosen each new hand: a random position, a cycle
+ * through every position one hand at a time, or a fixed position to drill.
+ */
+export type SeatMode = 'random' | 'cycle' | Position
+
 export interface Settings {
   /** Multiplier on bot think-time; 0 = instant (no per-action animation). */
   botTimeScale: number
   /** When true, folding plays the hand out; when false, it jumps to the result. */
   showFullHand: boolean
+  /** Which seat the hero trains in each hand (random / cycle / a fixed position). */
+  seatMode: SeatMode
 }
 
 /** Bot turn-time presets surfaced in the settings menu (Instant = 0). */
@@ -38,7 +47,7 @@ export const BOT_SPEEDS = [
   { label: 'Slow', scale: 1.8 },
 ] as const
 
-const DEFAULT_SETTINGS: Settings = { botTimeScale: 0, showFullHand: false }
+const DEFAULT_SETTINGS: Settings = { botTimeScale: 0, showFullHand: false, seatMode: 'random' }
 const SETTINGS_KEY = 'gto-trainer-settings'
 
 function loadSettings(): Settings {
@@ -77,6 +86,17 @@ interface DriveResult {
   state: HandState
   decision: DecisionPoint | null
   strategy: NodeStrategy | null
+}
+
+/**
+ * The fixed button seat for the hero's chosen training mode, or null when the
+ * button should be random (re-rolled each hand). 'cycle' walks the hero through
+ * every position in preflop order, one seat per hand (indexed by `cycleIndex`).
+ */
+function seatModeButton(mode: SeatMode, cycleIndex: number): number | null {
+  if (mode === 'random') return null
+  const position = mode === 'cycle' ? POSITIONS_6MAX[cycleIndex % POSITIONS_6MAX.length]! : mode
+  return buttonIndexFor(HERO_SEAT, position)
 }
 
 function createSessionSeed(): string {
@@ -236,8 +256,10 @@ export interface PlayStore {
   botRng: SeededRng
   /** Drives bot think-time only; kept separate so it never perturbs `botRng`. */
   timingRng: SeededRng
-  /** User settings (bot turn time, show-full-hand); persisted to localStorage. */
+  /** User settings (bot turn time, show-full-hand, seat mode); persisted to localStorage. */
   settings: Settings
+  /** Position index for 'cycle' seat mode; advances one seat per dealt hand. */
+  cycleIndex: number
   /** True when the hero's hand is resolved (complete, or folded out and skipped). */
   handDone: boolean
   busy: boolean
@@ -251,6 +273,8 @@ export interface PlayStore {
   loadHandFromLink: (link: HandLink) => Promise<void>
   revealChart: () => void
   setSettings: (patch: Partial<Settings>) => void
+  /** Change the hero's training seat and immediately deal a fresh hand in it. */
+  setSeatMode: (mode: SeatMode) => void
   heroAct: (action: Action) => Promise<void>
   startReplay: () => void
   exitReplay: () => void
@@ -274,6 +298,7 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
   botRng: createRng(`${INITIAL_BASE_SEED}:bots`),
   timingRng: createRng(`${INITIAL_BASE_SEED}:timing`),
   settings: loadSettings(),
+  cycleIndex: 0,
   handDone: false,
   busy: false,
   replaySteps: null,
@@ -282,9 +307,14 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
 
   async newHand() {
     let handNumber = get().handNumber
-    const { baseSeed, scenarioRng, botRng } = get()
+    const { baseSeed, scenarioRng, botRng, settings, cycleIndex } = get()
     let buttonIndex = get().buttonIndex
     let res: DriveResult | null = null
+
+    // Resolve the hero's seat once per hand: null = random button (re-rolled per
+    // attempt below), otherwise a fixed button pinning the chosen position. The
+    // cycle advances exactly once per dealt hand, regardless of retries.
+    const fixedButton = seatModeButton(settings.seatMode, cycleIndex)
 
     set({
       busy: true,
@@ -296,11 +326,12 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
       replaySteps: null,
       replayIndex: 0,
       replayStrategies: null,
+      cycleIndex: settings.seatMode === 'cycle' ? cycleIndex + 1 : cycleIndex,
     })
 
     for (let attempt = 0; attempt < MAX_NEW_HAND_ATTEMPTS; attempt++) {
       handNumber += 1
-      buttonIndex = scenarioRng.nextInt(NUM_SEATS)
+      buttonIndex = fixedButton ?? scenarioRng.nextInt(NUM_SEATS)
       const seed = `${baseSeed}-${handNumber}-${scenarioRng.nextU32().toString(36)}`
       const fresh = createHand({
         handId: seed,
@@ -318,7 +349,9 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
 
     if (!res) {
       handNumber += 1
-      buttonIndex = HERO_SEAT // Hero BTN guarantees a preflop decision after bots ahead act.
+      // Honor the chosen seat in the fallback; only a random button defaults to
+      // Hero BTN, which guarantees a preflop decision after the bots ahead act.
+      buttonIndex = fixedButton ?? HERO_SEAT
       const seed = `${baseSeed}-${handNumber}-${scenarioRng.nextU32().toString(36)}`
       res = await drive(
         createHand({
@@ -398,6 +431,16 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
     const settings = { ...get().settings, ...patch }
     saveSettings(settings)
     set({ settings })
+  },
+
+  setSeatMode(mode) {
+    if (get().settings.seatMode === mode) return
+    const settings = { ...get().settings, seatMode: mode }
+    saveSettings(settings)
+    // Reset the cycle so it starts from the first position, then deal a fresh
+    // hand right away so the new seat is visible immediately.
+    set({ settings, cycleIndex: 0 })
+    void get().newHand()
   },
 
   async heroAct(action) {
