@@ -19,6 +19,34 @@ const node = (heroPosition: Position, history: ActionRecord[] = []): GameNodeKey
   history,
 })
 
+const callBy = (position: Position): ActionRecord => ({
+  seatIndex: 0,
+  position,
+  street: 'preflop',
+  action: { type: 'call', amount: 250 },
+})
+
+/** Reconstruct the canonical raise-only node whose hero decision maps to `spotId`. */
+function nodeForSpotId(id: string): GameNodeKey {
+  const [fam, heroStr, vsStr] = id.split('/')
+  const hero = heroStr as Position
+  const villain = vsStr?.slice(2) as Position // "vsCO" -> "CO"
+  switch (fam) {
+    case 'rfi':
+      return node(hero)
+    case 'vsRfi':
+      return node(hero, [raiseBy(villain)])
+    case 'vs3bet': // hero opened, villain 3-bet
+      return node(hero, [raiseBy(hero), raiseBy(villain)])
+    case 'vs4bet': // hero 3-bet, villain (opener) 4-bet
+      return node(hero, [raiseBy(villain), raiseBy(hero), raiseBy(villain)])
+    case 'vs5bet': // hero opened + 4-bet, villain (3-bettor) 5-bet jammed
+      return node(hero, [raiseBy(hero), raiseBy(villain), raiseBy(hero), raiseBy(villain)])
+    default:
+      throw new Error(`unknown spot family: ${id}`)
+  }
+}
+
 describe('classifyPreflop', () => {
   it('classifies an unraised pot as RFI (except the BB)', () => {
     expect(classifyPreflop(node('CO'))?.spotId).toBe('rfi/CO')
@@ -33,7 +61,24 @@ describe('classifyPreflop', () => {
     expect(classifyPreflop(node('BTN', [raiseBy('BTN'), raiseBy('BB')]))?.spotId).toBe('vs3bet/BTN/vsBB')
   })
 
-  it('treats cold 4-bet decisions as unsupported', () => {
+  it('classifies the 3-bettor facing a 4-bet', () => {
+    // CO opens, BTN 3-bets, CO 4-bets — BTN now faces the 4-bet.
+    expect(classifyPreflop(node('BTN', [raiseBy('CO'), raiseBy('BTN'), raiseBy('CO')]))?.spotId).toBe(
+      'vs4bet/BTN/vsCO',
+    )
+  })
+
+  it('classifies the opener facing a 5-bet jam', () => {
+    // CO opens, BTN 3-bets, CO 4-bets, BTN jams — CO now faces the 5-bet.
+    expect(
+      classifyPreflop(node('CO', [raiseBy('CO'), raiseBy('BTN'), raiseBy('CO'), raiseBy('BTN')]))?.spotId,
+    ).toBe('vs5bet/CO/vsBTN')
+  })
+
+  it('routes lines with a cold-caller to the multiway path (null here)', () => {
+    // UTG opens, CO cold-calls, BB acts — a squeeze spot, not a heads-up vs-RFI.
+    expect(classifyPreflop(node('BB', [raiseBy('UTG'), callBy('CO')]))).toBeNull()
+    // A third party facing a 3-bet (cold 4-bet) stays unsupported by the linear classifier.
     expect(classifyPreflop(node('BB', [raiseBy('CO'), raiseBy('BTN')]))).toBeNull()
   })
 })
@@ -93,14 +138,12 @@ describe('PreflopChartProvider with the seed chart', () => {
     expect(a5o).toContainEqual({ actionId: 'fold', frequency: 0.5 })
   })
 
-  it('every spot compiles to valid frequencies summing to 1 (catches range overlap)', async () => {
+  it('every spot classifies back to its own id and serves valid frequencies', async () => {
     for (const spot of SEED_CHART.spots) {
-      const n = spot.threeBetPosition
-        ? node(spot.heroPosition, [raiseBy(spot.heroPosition), raiseBy(spot.threeBetPosition)])
-        : spot.openerPosition
-          ? node(spot.heroPosition, [raiseBy(spot.openerPosition)])
-          : node(spot.heroPosition)
+      const n = nodeForSpotId(spot.id)
+      expect(classifyPreflop(n)?.spotId, `${spot.id} round-trip`).toBe(spot.id)
       const s = await provider.getStrategy(n)
+      expect(s.spotId).toBe(spot.id)
       for (const [cls, row] of Object.entries(s.grid)) {
         const sum = row.reduce((acc, a) => acc + a.frequency, 0)
         expect(sum, `${spot.id} ${cls}`).toBeCloseTo(1, 6)
@@ -110,6 +153,18 @@ describe('PreflopChartProvider with the seed chart', () => {
         }
       }
     }
+  })
+
+  it('supports the full 3-bet/4-bet/5-bet tree the engine can reach', () => {
+    expect(provider.supports(nodeForSpotId('vs3bet/UTG/vsCO'))).toBe(true) // completed matrix
+    expect(provider.supports(nodeForSpotId('vs4bet/BTN/vsCO'))).toBe(true) // 3-bettor facing a 4-bet
+    expect(provider.supports(nodeForSpotId('vs5bet/CO/vsBTN'))).toBe(true) // opener facing a 5-bet jam
+  })
+
+  it('defends AQo in the BB vs a CO open (regression: was a silent 100% fold)', async () => {
+    const s = await provider.getStrategy(nodeForSpotId('vsRfi/BB/vsCO'))
+    const aqo = strategyForHand(s, 'AQo')
+    expect(aqo.some((a) => a.actionId !== 'fold' && a.frequency > 0)).toBe(true)
   })
 })
 
