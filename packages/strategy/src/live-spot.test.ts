@@ -17,6 +17,7 @@ describe('encode/decode round-trips', () => {
       lineKind: 'rfi',
       opener: null,
       threeBettor: null,
+      fourBettor: null,
       cards: [],
     }
     expect(decodeLiveSolverSpot(encodeLiveSolverSpot(spot))).toEqual({
@@ -33,6 +34,7 @@ describe('encode/decode round-trips', () => {
       lineKind: 'vsRfi',
       opener: 'BTN',
       threeBettor: null,
+      fourBettor: null,
       cards: [c('As'), c('Kh')],
     }
     expect(decodeLiveSolverSpot(encodeLiveSolverSpot(spot))).toEqual({
@@ -44,6 +46,25 @@ describe('encode/decode round-trips', () => {
     })
   })
 
+  it('round-trips a vs4bet spot with the 4-bettor (opener)', () => {
+    const spot: LivePreflopSpot = {
+      mode: 'preflop',
+      hero: 'BTN',
+      lineKind: 'vs4bet',
+      opener: null,
+      threeBettor: null,
+      fourBettor: 'CO',
+      cards: [c('Ad'), c('Ks')],
+    }
+    expect(decodeLiveSolverSpot(encodeLiveSolverSpot(spot))).toEqual({
+      mode: 'preflop',
+      hero: 'BTN',
+      lineKind: 'vs4bet',
+      fourBettor: 'CO',
+      cards: [c('Ad'), c('Ks')],
+    })
+  })
+
   it('drops opener/3-bettor that do not apply to the line kind', () => {
     const spot: LivePreflopSpot = {
       mode: 'preflop',
@@ -51,11 +72,13 @@ describe('encode/decode round-trips', () => {
       lineKind: 'rfi',
       opener: 'UTG', // irrelevant for rfi
       threeBettor: 'BTN', // irrelevant for rfi
+      fourBettor: 'HJ', // irrelevant for rfi
       cards: [],
     }
     const decoded = decodeLiveSolverSpot(encodeLiveSolverSpot(spot))
     expect(decoded).not.toHaveProperty('opener')
     expect(decoded).not.toHaveProperty('threeBettor')
+    expect(decoded).not.toHaveProperty('fourBettor')
   })
 
   it('round-trips a full postflop spot including pot, sliders and preview bet', () => {

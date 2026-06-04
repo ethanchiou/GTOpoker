@@ -27,14 +27,51 @@
 - **Live Solver postflop browser QA:** verified the full postflop flow in headless Chrome across all action-line presets, board/hole-card collision handling, manual bet controls, hero bet-vs-raise sliders, preflop pot/aggressor changes, seat swaps, and mobile layout. Fixed the board-picker active-slot edge case when expanding flop → turn/river and added the app icon so browser resource loading is clean.
 - **Postflop Live Solver UX polish:** added street-size preset buttons beside the exact-size preview slider, an All-in shortcut, best action / best bet-or-raise summaries, and EV delta versus the user's exact preview size. Shared helper logic lives in `packages/strategy/src/live-solver-analysis.ts` with tests; UI wiring lives in `apps/web/components/LiveSolverPostflop.tsx`. Verified with package checks, web typecheck/build, and desktop/mobile headless Chrome smoke checks.
 - **Shareable Live Solver spots:** every Live Solver input now persists in the URL query string (`?m=preflop|postflop&…`) so a spot can be copied, reopened, and used as a regression fixture. The codec is pure and CI-tested (`packages/strategy/src/live-spot.ts` + `live-spot.test.ts`; `encode/decodeLiveSolverSpot`, lenient validation that degrades to defaults on a malformed URL). The web glue (`apps/web/lib/liveSolverUrl.ts`) seeds state on mount and `history.replaceState`s on every change; `app/page.tsx` deep-links a shared link straight to the Live Solver tab. **Full fidelity** — seats, street, board, hole cards, action-line preset, bet sliders, the adjustable pot, *and* the preview-bet are all restored; the pot/preview-bet reset effects in `LiveSolverPostflop` are guarded with a strict-mode-safe ref pattern so a URL-seeded value survives mount instead of snapping back to the computed default. A **Copy link** button sits beside the Preflop/Postflop switcher (`LiveSolver.tsx`). Verified end-to-end in headless Chrome: preflop + postflop deep-links restore exactly (incl. pot=12bb / preview bet=9bb), URLs round-trip, no console or hydration errors.
+- **Full preflop 3-bet/4-bet/5-bet tree + multiway fallback + the AQo fix.** Audited all hand-authored
+  spots and patched the one genuine silent-fold hole (BB folded AQo to a CO open — it was absent from
+  every action range, so `compileSpot`'s implicit-fold-on-remainder pure-folded it); added
+  `charts.sanity.test.ts` as a CI guard so a premium can never silently 100%-fold again. Extended
+  `classifyPreflop` to walk the whole raise sequence (open→3bet→4bet→5bet) and route cold-caller lines
+  aside; grew the chart set from 25→65 spots (completed `vs3bet` to all 15, added `vs4bet`×15 and
+  `vs5bet`×15), closing the tree at 100bb. Multiway spots (squeeze / cold-call / cold-4bet) are served
+  by a derived **low-confidence** fallback (`multiway-fallback.ts` + `MultiwayFallbackProvider`, wired
+  into the composite) that transforms the nearest heads-up chart, so bots never silently fold them and
+  the human gets directional feedback flagged `confidence: 'low'`. The Live Solver gained a "facing a
+  4-bet" line (node builder + URL codec + UI picker), verified in headless Chrome.
 - **Shareable trainer hands:** the same copy/paste, adapted to the trainer's seeded engine. A hand is fully reproducible from its seed (which seeds the deck → hole cards *and* board), the button seat, and the action sequence, so the codec encodes just those (`packages/poker-engine/src/hand-link.ts` + `hand-link.test.ts`; `encode/decodeHandLink` + `reconstructHandFromLink`, CI-tested incl. a "reconstruct === live hand" round-trip). A **Copy link** button (`TrainerView.tsx`) builds a one-off shareable URL (`?hand=<seed>&btn=<n>&a=<actions>`) and copies it; opening such a URL deep-links into that exact hand. The store gained `loadHandFromLink` (`lib/store.ts`): a pending hero decision restores as a fresh spot (chart hidden), and a finished/folded hand restores with the last decision's GTO feedback **re-derived** — without touching session stats (it's someone else's hand). Unlike the Live Solver the address bar is **not** continuously synced (clipboard-only via `lib/trainerUrl.ts`), so a normal refresh still deals a fresh random hand; **New hand** clears any stale param. Corrupt/illegal links fall back to a fresh hand. Verified in headless Chrome: decision spots and folded hands restore exactly, feedback re-derives, stats stay clean, refresh still randomizes, no console errors.
 
 ## Next
 
 4. **Real WASM solver:** build the postflop-solver WASM artifact (`packages/solver-worker/BUILD.md`), switch the web transport from baseline to WASM, keep baseline fallback, and resolve the known facing-a-bet navigation TODO.
 5. **Solver correctness validation:** validate range handoff and postflop outputs against the WASM/Postflop reference solver within tolerances (spec §15 Phase 2).
-6. **Preflop data/tree depth:** replace hand-authored ranges with solved/licensed preflop GTO data, then add cold 4-bets, 5-bets, squeezes, and cold-call branches.
+6. **Preflop data/tree depth:** the linear tree (RFI → vs-RFI → vs-3bet → vs-4bet → vs-5bet) and a
+   derived multiway fallback now ship hand-authored (see Completed). Remaining: replace the
+   hand-authored ranges with solved/licensed GTO data (bump `confidence`), and promote the multiway
+   spots (squeeze / cold-call / cold-4bet) from the derived approximation to explicit solved charts —
+   plus a Live Solver line for them.
 7. **Trainer product features:** add cumulative per-hand EV, pre-solve-on-flop with progress/abort, session persistence, hand histories, and drill modes.
+
+## Pre-deploy / deployment readiness
+
+Gates an actual launch; orthogonal to the feature work in "Next". None of this is wired or
+configured yet (surfaced in the pre-deploy scope review). The headline blocker — the web app not
+compiling — is already resolved (shareable trainer hands landed; `next build` is green).
+
+- **Add `apps/web` to CI.** The root gate (`pnpm run check`) only covers `packages/*/src`; the web
+  app is neither typechecked nor built in CI, so a broken `next build` can reach a deploy undetected
+  (it briefly did). Add web `tsc --noEmit` + `next build` to `.github/workflows/ci.yml`.
+- **Configure a static-export deploy target.** `output: 'export'` is set but no host is wired
+  (Vercel / Netlify / GitHub Pages / S3). Pick one and verify the `apps/web/out/` artifact deploys
+  and loads clean.
+- **Add an E2E smoke test.** Spec §15 calls for Playwright (fixed-seed: play hand → feedback →
+  complete → stats update); none exist today. At least one smoke path before launch.
+- **AGPL-3.0 deploy decision (gate before shipping WASM).** The baseline transport carries no
+  copyleft and ships clean. Building/hosting the `postflop-solver` WASM (Next #4) triggers AGPL-3.0's
+  source-availability obligation (met by this repo being public, but a conscious call). Decide before
+  flipping a public deploy to the WASM transport.
+- **Session-stats persistence decision.** Today only *settings* persist (localStorage); session stats
+  live in memory and are lost on refresh (no `SessionStore` / IndexedDB yet — part of Next #7). Decide
+  whether ephemeral stats are acceptable for the first launch or persistence is pulled forward.
 
 ## Bot algorithm — remaining / deferred
 
