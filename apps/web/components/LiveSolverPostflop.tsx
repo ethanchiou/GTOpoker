@@ -30,7 +30,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { actionLabel, bb } from '../lib/format'
 import { holeFromCards, readDecodedSpot, writeSpotToUrl } from '../lib/liveSolverUrl'
 import { postflopProvider, strategyProvider } from '../lib/strategyProvider'
-import { recordHandSimulated } from '../lib/analytics'
+import { useSettledSpotCounter } from '../lib/useSettledSpotCounter'
 import { ActionRandomizer } from './ActionRandomizer'
 import { BoardPicker } from './BoardPicker'
 import { CardPicker, type HoleCards } from './CardPicker'
@@ -122,7 +122,6 @@ export function LiveSolverPostflop() {
   const betSeeded = useRef(seed.betSeeded)
   const potStructRef = useRef<string | null>(null)
   const betNodeRef = useRef<string | null>(null)
-  const countedNodeRef = useRef<string | null>(null) // last spot counted toward the private usage metric
 
   // Mirror the inputs into the URL so the spot is shareable. `heroBetChips` is the
   // raw slider state (the displayed value is clamped to the node) and round-trips.
@@ -274,6 +273,10 @@ export function LiveSolverPostflop() {
   const nodeKey = node
     ? `${node.street}|${node.heroPosition}|${node.board.join(',')}|${historyKey(node.history)}|${node.potChips}|${node.toCallChips}|${node.effectiveStackChips}`
     : ''
+
+  // One usage-metric event per spot the user settles on (debounced — see hook).
+  useSettledSpotCounter(node ? nodeKey : null, 'live-solver')
+
   useEffect(() => {
     if (!node) return
     if (betNodeRef.current === nodeKey) return // no real change (also no-ops strict-mode double-invoke)
@@ -323,11 +326,6 @@ export function LiveSolverPostflop() {
     if (!node) {
       setStrategy(null)
       return
-    }
-    // Count one simulated hand per distinct spot — not per bet-slider tweak/re-render.
-    if (countedNodeRef.current !== nodeKey) {
-      countedNodeRef.current = nodeKey
-      recordHandSimulated('live-solver')
     }
     let cancelled = false
     setSolving(true)
