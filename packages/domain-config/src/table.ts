@@ -78,3 +78,13 @@ export function positionFor(seatIndex: number, buttonIndex: number, numSeats = N
   const offset = (((seatIndex - buttonIndex) % numSeats) + numSeats) % numSeats
   return ORDER_FROM_BUTTON_6MAX[offset]!
 }
+
+/**
+ * Inverse of {@link positionFor}: the button seat that puts `seatIndex` at
+ * `position`. Used to pin the hero to a chosen training seat (6-max only).
+ */
+export function buttonIndexFor(seatIndex: number, position: Position, numSeats = NUM_SEATS_6MAX): number {
+  if (numSeats !== NUM_SEATS_6MAX) throw new Error('Only 6-max positions are supported')
+  const offset = ORDER_FROM_BUTTON_6MAX.indexOf(position)
+  return (((seatIndex - offset) % numSeats) + numSeats) % numSeats
+}
