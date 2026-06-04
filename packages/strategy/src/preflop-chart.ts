@@ -59,9 +59,23 @@ interface PreflopScenario {
   spotId: string
 }
 
-/** Classify a preflop node into a chart spot id (RFI, vs-RFI, or vs-3bet), or null. */
+/**
+ * Classify a preflop node into a chart spot id. Walks the raise sequence
+ * (open → 3-bet → 4-bet → 5-bet) and keys the spot off the hero's role:
+ *   - 0 raises          → `rfi/{hero}` (the BB never opens first-in)
+ *   - 1 raise           → `vsRfi/{hero}/vs{opener}`
+ *   - 2 raises, opener  → `vs3bet/{hero}/vs{threeBettor}`
+ *   - 3 raises, 3-bettor→ `vs4bet/{hero}/vs{fourBettor}`
+ *   - 4 raises, 4-bettor→ `vs5bet/{hero}/vs{fiveBettor}`
+ *
+ * Lines with a cold-caller (a `call` before the hero's first raise) — squeezes,
+ * cold 4-bets, cold-call decisions — are multiway and handled by
+ * `classifyMultiway` (see `multiway-fallback.ts`); this linear classifier returns
+ * null for them so the multiway path (or the conservative fallback) takes over.
+ */
 export function classifyPreflop(node: GameNodeKey): PreflopScenario | null {
   if (node.street !== 'preflop') return null
+  if (hasColdCaller(node.history)) return null // squeeze / cold-call / cold-4bet — multiway
   const raises = node.history.filter((a) => a.action.type === 'raise')
   const hero = node.heroPosition
   if (raises.length === 0) {
@@ -76,8 +90,26 @@ export function classifyPreflop(node: GameNodeKey): PreflopScenario | null {
     const opener = raises[0]!.position
     const threeBettor = raises[1]!.position
     if (opener === hero) return { spotId: `vs3bet/${hero}/vs${threeBettor}` }
+    return null // a third party facing the 3-bet is a cold 4-bet — multiway
   }
-  return null // Cold 4-bet spots and deeper trees are not modelled in the seed charts.
+  if (raises.length === 3) {
+    const threeBettor = raises[1]!.position
+    const fourBettor = raises[2]!.position
+    if (threeBettor === hero) return { spotId: `vs4bet/${hero}/vs${fourBettor}` }
+    return null
+  }
+  if (raises.length === 4) {
+    const fourBettor = raises[2]!.position
+    const fiveBettor = raises[3]!.position
+    if (fourBettor === hero) return { spotId: `vs5bet/${hero}/vs${fiveBettor}` }
+    return null
+  }
+  return null // 6-bet+ all-in wars are out of the modelled tree (jam/fold by fallback).
+}
+
+/** True if anyone limp/cold-called before the hero's first voluntary raise — a multiway tell. */
+function hasColdCaller(history: GameNodeKey['history']): boolean {
+  return history.some((a) => a.action.type === 'call')
 }
 
 export class PreflopChartProvider implements StrategyProvider {
@@ -116,6 +148,19 @@ export class PreflopChartProvider implements StrategyProvider {
       this.cache.set(spotId, c)
     }
     return c
+  }
+
+  /** Whether the chart set carries a spot with this id (for derived/multiway lookups). */
+  hasSpot(spotId: string): boolean {
+    return this.spots.has(spotId)
+  }
+
+  /** The compiled strategy for a spot id directly, or null if absent. Used by the
+   *  multiway fallback to derive an approximation from a heads-up reference spot. */
+  strategyForSpot(spotId: string): NodeStrategy | null {
+    if (!this.spots.has(spotId)) return null
+    const c = this.compiled(spotId)
+    return { spotId, actions: c.actions, grid: c.grid, meta: this.meta }
   }
 }
 

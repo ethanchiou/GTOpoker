@@ -20,7 +20,7 @@ import type {
  * spot to restore.
  */
 
-export type PreflopLineKind = 'rfi' | 'vsRfi' | 'vs3bet'
+export type PreflopLineKind = 'rfi' | 'vsRfi' | 'vs3bet' | 'vs4bet'
 
 export interface LivePreflopSpot {
   mode: 'preflop'
@@ -28,6 +28,8 @@ export interface LivePreflopSpot {
   lineKind: PreflopLineKind
   opener: Position | null
   threeBettor: Position | null
+  /** The opener who 4-bet, when the hero (3-bettor) is facing a 4-bet. */
+  fourBettor: Position | null
   /** Hole cards in slot order, 0–2 (no nulls; an empty slot is simply absent). */
   cards: Card[]
 }
@@ -66,7 +68,7 @@ export type DecodedLiveSpot =
   | ({ mode: 'preflop' } & Partial<Omit<LivePreflopSpot, 'mode'>>)
   | ({ mode: 'postflop' } & Partial<Omit<LivePostflopSpot, 'mode'>>)
 
-const LINE_KINDS: readonly PreflopLineKind[] = ['rfi', 'vsRfi', 'vs3bet']
+const LINE_KINDS: readonly PreflopLineKind[] = ['rfi', 'vsRfi', 'vs3bet', 'vs4bet']
 const STREETS: readonly PostflopStreet[] = ['flop', 'turn', 'river']
 const POT_TYPES: readonly PostflopPotType[] = ['srp', '3bet']
 const AGGRESSORS: readonly PreflopAggressor[] = ['hero', 'villain']
@@ -133,6 +135,7 @@ export function encodeLiveSolverSpot(spot: LiveSolverSpot): string {
     p.set('l', spot.lineKind)
     if (spot.lineKind === 'vsRfi' && spot.opener) p.set('o', spot.opener)
     if (spot.lineKind === 'vs3bet' && spot.threeBettor) p.set('tb', spot.threeBettor)
+    if (spot.lineKind === 'vs4bet' && spot.fourBettor) p.set('fb', spot.fourBettor)
     if (spot.cards.length > 0) p.set('c', encodeCards(spot.cards))
   } else {
     p.set('s', spot.street)
@@ -167,6 +170,8 @@ export function decodeLiveSolverSpot(input: string | URLSearchParams): DecodedLi
     if (opener) out.opener = opener
     const threeBettor = asPosition(p.get('tb'))
     if (threeBettor) out.threeBettor = threeBettor
+    const fourBettor = asPosition(p.get('fb'))
+    if (fourBettor) out.fourBettor = fourBettor
     const cards = decodeCards(p.get('c'), 2)
     if (cards) out.cards = cards
     return out
