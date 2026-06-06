@@ -70,6 +70,15 @@ export class PostflopSolverProvider implements StrategyProvider {
   }
 
   /**
+   * Drop all cached solves. Call this when the active solve engine changes: the
+   * cache key is the canonical node (it does not include the engine), so without
+   * a clear the next request would return a result solved by the previous backend.
+   */
+  clearCache(): void {
+    this.cache.clear()
+  }
+
+  /**
    * Like {@link getStrategy} but also evaluates the given extra pot-fraction sizes
    * alongside the street's default tree — the Live Solver's "preview my bet" slider,
    * so the mix carries the exact size the user dials with its real frequency and EV.
@@ -114,6 +123,7 @@ export class PostflopSolverProvider implements StrategyProvider {
       minRaiseToChips: sizingContext.minRaiseTo,
       betFractions: mergeFractions(this.fractionsFor(node.street), extraBetFractions),
       heroIsOop: isOutOfPosition(heroPos, villainPos),
+      ...solveBudgetFor(node.street),
     })
 
     const grid = aggregateToGrid(result.hero, heroRange)
@@ -131,6 +141,25 @@ export class PostflopSolverProvider implements StrategyProvider {
         version: result.meta.label,
       },
     }
+  }
+}
+
+/**
+ * Per-street solve budget for the real CFR (WASM) solver. The cost of a solve is
+ * dominated by the runout subtree: a flop enumerates every turn+river (~45x44), a
+ * turn every river (~44), a river none. With full preflop-derived ranges (hundreds
+ * of combos) the flop at the river's budget would take minutes, so the cap tightens
+ * earlier in the tree to keep an opt-in solve interactive. The baseline transport
+ * ignores these. Tune against a real-device perf pass (BUILD.md).
+ */
+function solveBudgetFor(street: string): { maxIterations: number; targetExploitabilityFraction: number } {
+  switch (street) {
+    case 'flop':
+      return { maxIterations: 40, targetExploitabilityFraction: 0.03 }
+    case 'turn':
+      return { maxIterations: 80, targetExploitabilityFraction: 0.015 }
+    default: // river: cheapest tree, solve it tight
+      return { maxIterations: 200, targetExploitabilityFraction: 0.005 }
   }
 }
 

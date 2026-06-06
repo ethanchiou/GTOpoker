@@ -22,9 +22,12 @@ description = "WASM glue around postflop-solver for the GTO Trainer"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Pin to a reviewed commit when building for real (see BUILD.md). Verify the
-# crate's current feature flags + public API against its README on build.
-postflop-solver = { git = "https://github.com/b-inary/postflop-solver" }
+# Pinned to a reviewed commit for reproducibility (see BUILD.md). default-features
+# off drops `bincode` (tree save/load — unused; its bincode-2.0 trait impls don't
+# compile against bincode 2.0.1) and `rayon` (threads — unavailable on
+# wasm32-unknown-unknown). Leaves the single-threaded solver core, which is what
+# the upstream wasm-postflop app ships.
+postflop-solver = { git = "https://github.com/b-inary/postflop-solver", rev = "9d1509fe5077d019825f833eed04b16d342dfda1", default-features = false }
 wasm-bindgen = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

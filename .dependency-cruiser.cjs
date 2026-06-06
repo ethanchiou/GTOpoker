@@ -40,6 +40,7 @@ module.exports = {
     tsConfig: { fileName: 'tsconfig.json' },
     tsPreCompilationDeps: true,
     doNotFollow: { path: 'node_modules' },
-    exclude: { path: '\\.test\\.ts$' },
+    // Skip tests and the generated WASM artifact (built per BUILD.md, gitignored).
+    exclude: { path: ['\\.test\\.ts$', '^packages/solver-worker/pkg/'] },
   },
 }

@@ -11,7 +11,8 @@ import {
   type HandState,
 } from '@gto/poker-engine'
 import { decideGtoAction, handClass, type NodeStrategy } from '@gto/strategy'
-import { strategyProvider as provider } from './strategyProvider'
+import { strategyProvider as provider, postflopProvider } from './strategyProvider'
+import { setSolverEngine, type SolverEngine } from './solver'
 import { recordHandSimulated } from './analytics'
 import { buildReplaySteps, type ReplayStep } from './replay'
 import {
@@ -37,6 +38,12 @@ export interface Settings {
   showFullHand: boolean
   /** Which seat the hero trains in each hand (random / cycle / a fixed position). */
   seatMode: SeatMode
+  /**
+   * Postflop solve engine. 'baseline' (default) is the fast in-process
+   * approximation; 'wasm' is the real CFR equilibrium solver — exact but seconds
+   * per flop solve. Facing-a-bet nodes fall back to baseline either way (Phase B).
+   */
+  solverEngine: SolverEngine
 }
 
 /** Bot turn-time presets surfaced in the settings menu (Instant = 0). */
@@ -47,7 +54,7 @@ export const BOT_SPEEDS = [
   { label: 'Slow', scale: 1.8 },
 ] as const
 
-const DEFAULT_SETTINGS: Settings = { botTimeScale: 0, showFullHand: false, seatMode: 'cycle' }
+const DEFAULT_SETTINGS: Settings = { botTimeScale: 0, showFullHand: false, seatMode: 'cycle', solverEngine: 'baseline' }
 const SETTINGS_KEY = 'gto-trainer-settings'
 
 function loadSettings(): Settings {
@@ -428,8 +435,16 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
   },
 
   setSettings(patch) {
-    const settings = { ...get().settings, ...patch }
+    const prev = get().settings
+    const settings = { ...prev, ...patch }
     saveSettings(settings)
+    // Switching the solve engine: point the routing transport at the new backend
+    // and drop cached solves (keyed by node, not engine) so the next request
+    // re-solves with it.
+    if (patch.solverEngine !== undefined && patch.solverEngine !== prev.solverEngine) {
+      setSolverEngine(patch.solverEngine)
+      postflopProvider.clearCache()
+    }
     set({ settings })
   },
 
@@ -523,5 +538,9 @@ export const usePlayStore = create<PlayStore>((set, get) => ({
     get().replayGoto(get().replayIndex + delta)
   },
 }))
+
+// Point the routing transport at the persisted engine choice on load, so a
+// user who left "exact solver" on gets it before their first solve.
+setSolverEngine(usePlayStore.getState().settings.solverEngine)
 
 export { HERO_SEAT, NUM_SEATS }

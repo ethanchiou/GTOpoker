@@ -1,17 +1,73 @@
-import { BaselineSolverTransport, type SolverTransport } from '@gto/strategy'
+import {
+  BaselineSolverTransport,
+  type SolveRequest,
+  type SolveResult,
+  type SolverTransport,
+} from '@gto/strategy'
+import { WasmSolverTransport } from './wasm-transport'
+
+export type SolverEngine = 'baseline' | 'wasm'
+
+let currentEngine: SolverEngine = 'baseline'
 
 /**
- * Postflop solve backend for the web app.
- *
- * Defaults to the in-process {@link BaselineSolverTransport} so the app runs with
- * no extra build step (clearly-labeled approximate EVs — see the panel note in
- * the UI). To use real CFR equilibrium EVs, build the WASM artifact
- * (packages/solver-worker/BUILD.md), copy `pkg/` to `public/solver/`, then swap
- * the return below for `new WasmSolverTransport()` from `./wasm-transport`.
- *
- * The baseline's iteration count is kept modest so a flop pre-solve stays
- * responsive on the main thread; the WASM path runs off-thread in a Web Worker.
+ * Set the active postflop solve engine. Called by the settings store when the
+ * user flips the "exact solver" toggle; takes effect on the next solve. The
+ * provider cache is keyed by node only, so the store also clears it on change.
  */
+export function setSolverEngine(engine: SolverEngine): void {
+  currentEngine = engine
+}
+
+export function getSolverEngine(): SolverEngine {
+  return currentEngine
+}
+
+/**
+ * Nodes the WASM solver computes correctly today: a first-to-act decision (no bet
+ * to call). Hero OOP reads the tree root; hero IP advances past villain's check.
+ * Facing-a-bet nodes need tree navigation that isn't built yet (Phase B), so they
+ * route to the baseline.
+ */
+function wasmSupports(req: SolveRequest): boolean {
+  return (req.toCallChips ?? 0) <= 0
+}
+
+/**
+ * Postflop solve backend for the web app, shared by the trainer and Live Solver.
+ *
+ * The in-process {@link BaselineSolverTransport} is always available and is the
+ * default (clearly-labeled approximate EVs). When the user opts into the WASM
+ * ("exact") engine, supported nodes are solved by the real CFR equilibrium solver
+ * off the main thread in a Web Worker. Unsupported nodes and ANY worker failure —
+ * a missing artifact (404), a facing-a-bet node, a solver panic — fall back to the
+ * baseline transparently, so the app never serves a wrong or missing result.
+ *
+ * Flop solves are expensive (seconds); turn/river are milliseconds. The toggle is
+ * opt-in precisely so the user accepts that cost when they want exact EVs.
+ */
+class RoutingSolverTransport implements SolverTransport {
+  private readonly baseline = new BaselineSolverTransport({ iterations: 150 })
+  private wasm: WasmSolverTransport | null = null
+
+  private wasmTransport(): WasmSolverTransport {
+    // Lazy: only spin up the Worker (browser-only) the first time WASM is used.
+    if (!this.wasm) this.wasm = new WasmSolverTransport()
+    return this.wasm
+  }
+
+  async solve(req: SolveRequest): Promise<SolveResult> {
+    if (currentEngine === 'wasm' && wasmSupports(req)) {
+      try {
+        return await this.wasmTransport().solve(req)
+      } catch {
+        return this.baseline.solve(req)
+      }
+    }
+    return this.baseline.solve(req)
+  }
+}
+
 export function createSolverTransport(): SolverTransport {
-  return new BaselineSolverTransport({ iterations: 150 })
+  return new RoutingSolverTransport()
 }

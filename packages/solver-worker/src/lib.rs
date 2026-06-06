@@ -43,6 +43,13 @@ struct SolveRequestDto {
     rake_percent: f64,
     #[serde(default)]
     rake_cap_chips: f64,
+    /// Solve budget (the play-mode levers from BUILD.md). The TS side sets these
+    /// per street — flop trees are far larger than turn/river, so a caller can
+    /// trade accuracy for latency. Default to the previous hardcoded values.
+    #[serde(default)]
+    max_iterations: Option<u32>,
+    #[serde(default)]
+    target_exploitability_fraction: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -73,24 +80,24 @@ struct SolveResultDto {
 }
 
 /// Remap an engine card (rank*4+suit, suit c,d,h,s) to the solver's encoding.
-/// VERIFY: postflop-solver also uses rank*4+suit; confirm its suit order. If it
-/// matches (c,d,h,s) this is the identity and the function can stay as-is.
+/// Verified: postflop-solver also uses `4*rank + suit` with suit order
+/// club=0, diamond=1, heart=2, spade=3 — identical to our engine, so this is
+/// the identity (see card.rs docs in the pinned crate).
 fn to_solver_card(engine_card: u8) -> Card {
     engine_card as Card
 }
 
-/// Build a solver `Range` (1326 weights) from our weighted combos.
+/// Build a solver `Range` (1326 weights) from our weighted combos. Uses the
+/// public `from_hands_weights` constructor (the combo-index fn is `pub(crate)`).
+/// A malformed range degrades to empty rather than panicking the worker; valid
+/// upstream ranges never hit that path.
 fn build_range(combos: &[ComboDto]) -> Range {
-    let mut data = [0.0f32; 1326];
-    for c in combos {
-        let a = to_solver_card(c.hand[0]);
-        let b = to_solver_card(c.hand[1]);
-        // VERIFY: `card_pair_to_index(c1, c2)` is the canonical combo index.
-        let idx = card_pair_to_index(a, b);
-        data[idx] = c.weight;
-    }
-    // VERIFY: constructor name for building a Range from raw [f32; 1326].
-    Range::from_raw_data(&data)
+    let hands: Vec<(Card, Card)> = combos
+        .iter()
+        .map(|c| (to_solver_card(c.hand[0]), to_solver_card(c.hand[1])))
+        .collect();
+    let weights: Vec<f32> = combos.iter().map(|c| c.weight).collect();
+    Range::from_hands_weights(&hands, &weights).unwrap_or_else(|_| Range::new())
 }
 
 /// Format our pot-fraction bet sizes as the solver's bet-size string ("33%,75%").
@@ -112,11 +119,19 @@ pub fn solve(request_json: &str) -> String {
         Err(e) => return format!("{{\"error\":\"bad request: {e}\"}}"),
     };
 
-    let result = solve_inner(&req);
-    serde_json::to_string(&result).unwrap_or_else(|e| format!("{{\"error\":\"serialize: {e}\"}}"))
+    match solve_inner(&req) {
+        Ok(result) => serde_json::to_string(&result)
+            .unwrap_or_else(|e| format!("{{\"error\":\"serialize: {e}\"}}")),
+        // A typed fallback signal (e.g. an unsupported node): the worker rejects
+        // on `error`, and the routing transport serves the baseline instead.
+        Err(e) => {
+            let escaped = e.replace('\\', "\\\\").replace('"', "\\\"");
+            format!("{{\"error\":\"{escaped}\"}}")
+        }
+    }
 }
 
-fn solve_inner(req: &SolveRequestDto) -> SolveResultDto {
+fn solve_inner(req: &SolveRequestDto) -> Result<SolveResultDto, String> {
     let bb = req.big_blind_chips.max(1.0);
     let to_bb = |chips: f64| (chips / bb) as f32;
 
@@ -144,9 +159,9 @@ fn solve_inner(req: &SolveRequestDto) -> SolveResultDto {
         river,
     };
 
-    // VERIFY: BetSizeCandidates::try_from((bet, raise)) signature.
+    // Verified: BetSizeOptions::try_from((bet, raise)) takes (&str, &str).
     let bet_sizes = bet_size_string(&req.bet_fractions);
-    let bet = BetSizeCandidates::try_from((bet_sizes.as_str(), bet_sizes.as_str())).unwrap();
+    let bet = BetSizeOptions::try_from((bet_sizes.as_str(), bet_sizes.as_str())).unwrap();
 
     let tree_config = TreeConfig {
         initial_state: board_state_for(&req.board),
@@ -168,30 +183,46 @@ fn solve_inner(req: &SolveRequestDto) -> SolveResultDto {
     let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
     game.allocate_memory(false);
 
-    // Solve to a modest target exploitability; tune in BUILD.md / perf spike.
-    solve(&mut game, 200, req.pot_chips as f32 * 0.005, false);
-    game.cache_normalized_weights();
-    game.back_to_root();
+    // Solve to a target exploitability or iteration cap, whichever comes first.
+    // Caller-tunable per street (flop trees are ~200x the turn). Qualified path:
+    // our own `solve` (the wasm_bindgen entry point) shadows the glob import.
+    let max_iter = req.max_iterations.unwrap_or(200);
+    let target_frac = req.target_exploitability_fraction.unwrap_or(0.005);
+    postflop_solver::solve(&mut game, max_iter, (req.pot_chips * target_frac) as f32, false);
 
-    // The hero is OOP=0 / IP=1 depending on position.
+    // Navigate to the hero's decision node before reading. The action tree's root
+    // is always the OOP player's first action.
     let hero_player = if req.hero_is_oop { 0 } else { 1 };
-
-    // NOTE: This reads the *root* (flop, first decision) node. When the hero
-    // faces a bet (to_call_chips > 0) the real node is one or more actions deep;
-    // navigate via `game.play(action_idx)` before reading. TODO: thread the
-    // postflop action path through the request to locate non-root nodes.
-    let _ = req.to_call_chips;
+    if req.to_call_chips > 0.0 {
+        // Facing a bet: the hero's node sits past villain's bet. Reconstructing
+        // that line needs the street action path (Phase B). The baseline transport
+        // serves these correctly today, so signal a fallback rather than reading
+        // the wrong (root) node.
+        return Err("wasm solver: facing-a-bet nodes not yet supported".to_string());
+    }
+    game.back_to_root();
+    if !req.hero_is_oop {
+        // Hero is in position with nothing to call, so OOP checked to it. Advance
+        // past that check to reach the hero's first decision. (A check moves no
+        // chips, so the node's pot/stack accounting is unchanged.)
+        let actions = game.available_actions();
+        let check_idx = actions
+            .iter()
+            .position(|a| matches!(a, Action::Check))
+            .ok_or_else(|| "wasm solver: expected an OOP check before the IP hero's turn".to_string())?;
+        game.play(check_idx);
+    }
 
     let hero_strategy = read_hero_strategy(&mut game, hero_player, to_bb);
 
-    SolveResultDto {
+    Ok(SolveResultDto {
         hero: hero_strategy,
         meta: MetaDto {
             confidence: "high".to_string(),
             approximate: false,
             label: "wasm".to_string(),
         },
-    }
+    })
 }
 
 fn board_state_for(board: &[u8]) -> BoardState {
@@ -202,35 +233,32 @@ fn board_state_for(board: &[u8]) -> BoardState {
     }
 }
 
-/// Read the current node's hero strategy + per-action EV, per combo.
+/// Read the hero's per-combo strategy + per-action EV at the *current* node. The
+/// caller must already be at the hero's decision (hero == current player), so no
+/// tree navigation happens here. `strategy()` and `expected_values_detail()` share
+/// the same `[action * num_hands + hand]` (column-major) layout, so per-action EVs
+/// come from one read instead of playing each action and unwinding.
 fn read_hero_strategy(
     game: &mut PostFlopGame,
     hero_player: usize,
     to_bb: impl Fn(f64) -> f32,
 ) -> Vec<ComboStrategyDto> {
-    // VERIFY: these accessor names against the pinned crate version.
+    game.cache_normalized_weights(); // required by expected_values_detail at this node
     let cards = game.private_cards(hero_player).to_vec(); // Vec<(Card, Card)>
-    let actions = game.available_actions(); // Vec<Action>
-    let strategy = game.strategy(); // len = num_actions * num_hands (column-major)
+    let actions = game.available_actions(); // Vec<Action>, the hero's options here
+    let strategy = game.strategy(); // freq per (action, hand)
+    let evs = game.expected_values_detail(hero_player); // EV (chips) per (action, hand)
     let num_hands = cards.len();
-
-    // Per-action EV: play each action, read the hero's EVs, then unwind.
-    let mut action_ev: Vec<Vec<f32>> = Vec::with_capacity(actions.len());
-    for a in 0..actions.len() {
-        game.play(a);
-        let ev = game.expected_values(hero_player); // EV per hero hand (chips)
-        action_ev.push(ev.iter().map(|e| to_bb(*e as f64)).collect());
-        game.back_to_root();
-    }
 
     let mut out = Vec::with_capacity(num_hands);
     for h in 0..num_hands {
         let mut row = Vec::with_capacity(actions.len());
         for a in 0..actions.len() {
+            let idx = a * num_hands + h;
             row.push(ActionDto {
                 action_id: action_id_for(&actions[a]),
-                frequency: strategy[a * num_hands + h],
-                ev: action_ev[a][h],
+                frequency: strategy[idx],
+                ev: to_bb(evs[idx] as f64),
             });
         }
         let (c1, c2) = cards[h];
@@ -242,7 +270,7 @@ fn read_hero_strategy(
     out
 }
 
-/// Inverse of `to_solver_card` (identity if encodings match — VERIFY).
+/// Inverse of `to_solver_card`; identity since the encodings match (verified).
 fn from_solver_card(c: Card) -> u8 {
     c as u8
 }

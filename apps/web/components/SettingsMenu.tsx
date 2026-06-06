@@ -129,6 +129,33 @@ export function SettingsMenu() {
               />
             </button>
           </div>
+
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-slate-200">Exact solver</div>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Use the real CFR equilibrium solver instead of the fast approximation.
+                Turn/river are instant; flop solves take a few seconds.
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={settings.solverEngine === 'wasm'}
+              aria-label="Exact solver"
+              onClick={() =>
+                setSettings({ solverEngine: settings.solverEngine === 'wasm' ? 'baseline' : 'wasm' })
+              }
+              className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition ${
+                settings.solverEngine === 'wasm' ? 'bg-amber-400' : 'bg-slate-700'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
+                  settings.solverEngine === 'wasm' ? 'left-[1.375rem]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </div>
         </div>
       )}
     </div>

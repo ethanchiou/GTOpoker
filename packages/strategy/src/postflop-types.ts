@@ -49,6 +49,14 @@ export interface SolveRequest {
   /** Rake as a fraction of the pot and a cap in chips (default: no rake). */
   rakePercent?: number
   rakeCapChips?: number
+  /**
+   * Solve budget for the real CFR solver (the WASM transport): iteration cap and
+   * target exploitability as a fraction of the pot, whichever it hits first. Lets
+   * the caller trade accuracy for latency per street — flop trees are far larger
+   * than turn/river. Ignored by the baseline transport, which has its own budget.
+   */
+  maxIterations?: number
+  targetExploitabilityFraction?: number
 }
 
 /** A single combo's equilibrium action mix at the node, with per-action EV (bb). */

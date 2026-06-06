@@ -35,6 +35,10 @@ ctx.onmessage = async (e: MessageEvent<SolveRequestMessage>) => {
   try {
     const solve = await ensureWasm()
     const result = JSON.parse(solve(JSON.stringify(request)))
+    // The WASM `solve` returns `{error}` for a bad request or an unsupported node
+    // (e.g. facing a bet). Surface it as a rejection so the routing transport
+    // falls back to the baseline instead of resolving with a result-less object.
+    if (result && typeof result.error === 'string') throw new Error(result.error)
     const ok: SolveResponseMessage = { id, ok: true, result }
     ctx.postMessage(ok)
   } catch (err) {

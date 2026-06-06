@@ -1,0 +1,6 @@
+# The postflop-solver WASM artifact is rebuilt from source, not committed
+# (multi-MB, AGPL-3.0 — see packages/solver-worker/BUILD.md). Build it with
+# `pnpm run build:solver` from the repo root; the app falls back to the baseline
+# transport when it is absent.
+*
+!.gitignore

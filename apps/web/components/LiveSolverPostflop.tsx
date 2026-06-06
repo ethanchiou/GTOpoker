@@ -556,10 +556,16 @@ export function LiveSolverPostflop() {
               {solving && <span className="text-xs text-slate-500">solving…</span>}
             </div>
 
-            <p className="rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-300">
-              Approximate baseline solver — EVs are estimates, not a true CFR solve (they become exact once the
-              postflop-solver WASM is built). Frequencies and the mix are directional.
-            </p>
+            {strategy?.meta.version === 'wasm' ? (
+              <p className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-xs text-emerald-300">
+                Exact CFR solve (postflop-solver WASM) — frequencies and per-action EVs are real equilibrium values.
+              </p>
+            ) : (
+              <p className="rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-300">
+                Approximate baseline solver — EVs are estimates, not a true CFR solve. Enable “Exact solver” in
+                settings for real equilibrium values (turn/river are instant; flop takes a few seconds).
+              </p>
+            )}
 
             {bothCards && <HandStrength hole={[cards[0]!, cards[1]!]} board={boardCards} />}
 
