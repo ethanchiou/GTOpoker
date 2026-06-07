@@ -20,6 +20,18 @@ export interface WeightedCombo {
 export type Range = WeightedCombo[]
 
 /**
+ * One already-taken action on the current street, in order, for the WASM solver to
+ * replay into its tree to reach a facing-a-bet hero node (Phase B). The baseline
+ * transport ignores it.
+ */
+export interface StreetActionStep {
+  actor: 'oop' | 'ip'
+  kind: 'check' | 'call' | 'bet' | 'raise'
+  /** Bet/raise: total chips committed this street after the action (the "to" amount). */
+  toChips?: number
+}
+
+/**
  * Everything a heads-up postflop solve needs at one node. Money is in chips
  * (converted to bb at the edge). `toCallChips === 0` means the hero may
  * check/bet; otherwise the hero faces a bet and may fold/call/raise.
@@ -36,6 +48,13 @@ export interface SolveRequest {
   heroCommittedThisStreetChips?: number
   /** Villain's current commitment on this betting street before hero acts. */
   villainCommittedThisStreetChips?: number
+  /**
+   * The current street's action path before the hero's decision, in order, for the
+   * WASM solver to replay into its tree (so it can serve facing-a-bet nodes, not
+   * just first-to-act). Empty/absent = hero is first to act. The baseline transport
+   * ignores this.
+   */
+  streetActionPath?: readonly StreetActionStep[]
   /** Minimum legal bet/raise-to amount for the aggressive option, when known. */
   minRaiseToChips?: number
   /** Postflop bet/raise sizes as a fraction of the pot (e.g. 0.33, 0.75). */

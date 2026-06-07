@@ -2,7 +2,7 @@ import { DEFAULT_BET_SIZE_TREE, type Position } from '@gto/domain-config'
 import type { GameNodeKey } from '@gto/poker-engine'
 import { handClass, type HandClass } from './hand-class'
 import { buildPreflopRange, inHandPositions } from './range-handoff'
-import type { ComboStrategy, Range, SolverTransport } from './postflop-types'
+import type { ComboStrategy, Range, SolverTransport, StreetActionStep } from './postflop-types'
 import { comboKey, type ActionFrequency, type ActionId, type NodeStrategy, type StrategyProvider } from './types'
 
 /** The postflop streets the provider sizes for. */
@@ -109,6 +109,8 @@ export class PostflopSolverProvider implements StrategyProvider {
       buildPreflopRange(villainPos, node.history, this.preflopProvider, board, bb),
     ])
     const sizingContext = currentStreetSizingContext(node, heroPos, villainPos)
+    const oopPos = isOutOfPosition(heroPos, villainPos) ? heroPos : villainPos
+    const streetActionPath = buildStreetActionPath(node, oopPos)
 
     const result = await this.transport.solve({
       board,
@@ -121,6 +123,7 @@ export class PostflopSolverProvider implements StrategyProvider {
       heroCommittedThisStreetChips: sizingContext.heroCommitted,
       villainCommittedThisStreetChips: sizingContext.villainCommitted,
       minRaiseToChips: sizingContext.minRaiseTo,
+      streetActionPath,
       betFractions: mergeFractions(this.fractionsFor(node.street), extraBetFractions),
       heroIsOop: isOutOfPosition(heroPos, villainPos),
       ...solveBudgetFor(node.street),
@@ -175,6 +178,28 @@ function mergeFractions(base: readonly number[], extra: readonly number[]): numb
 function solveKey(node: GameNodeKey): string {
   const hist = node.history.map((r) => `${r.position}:${r.action.type}:${r.action.amount ?? ''}`).join('>')
   return `${node.street}|${node.heroPosition}|${node.board.join(',')}|${hist}|${node.potChips}|${node.toCallChips}|${node.effectiveStackChips}`
+}
+
+/**
+ * The current street's action records mapped to the solver's replay path: each
+ * already-taken action before the hero's decision, in order, tagged by position
+ * (OOP/IP) and carrying its bet/raise "to" total. The WASM solver replays this to
+ * reach the hero's real node; the baseline ignores it. Folds never precede a hero
+ * decision, so they are skipped.
+ */
+function buildStreetActionPath(node: GameNodeKey, oopPos: Position): StreetActionStep[] {
+  const steps: StreetActionStep[] = []
+  for (const rec of node.history) {
+    if (rec.street !== node.street) continue
+    const kind = rec.action.type
+    if (kind === 'fold') continue
+    steps.push({
+      actor: rec.position === oopPos ? 'oop' : 'ip',
+      kind,
+      toChips: rec.action.amount,
+    })
+  }
+  return steps
 }
 
 function currentStreetSizingContext(

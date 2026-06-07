@@ -259,6 +259,22 @@ describe('BaselineSolverTransport', () => {
 describe('PostflopSolverProvider', () => {
   const provider = new PostflopSolverProvider(new BaselineSolverTransport({ iterations: 150 }), preflop)
 
+  /** Records every SolveRequest it receives so tests can assert what the provider built. */
+  class CaptureTransport implements SolverTransport {
+    requests: SolveRequest[] = []
+
+    async solve(req: SolveRequest): Promise<SolveResult> {
+      this.requests.push(req)
+      return {
+        hero: req.heroRange.map(({ hand }) => ({
+          hand,
+          actions: [{ actionId: 'fold', frequency: 1, ev: 0 }],
+        })),
+        meta: { confidence: 'low', approximate: true, label: 'capture' },
+      }
+    }
+  }
+
   // Drive a real hand to a heads-up BTN-vs-BB flop decision.
   function flopNode() {
     const holeCards: Array<[Card, Card]> = [
@@ -302,21 +318,6 @@ describe('PostflopSolverProvider', () => {
   })
 
   it('passes per-street sizing and current-street raise context to the transport', async () => {
-    class CaptureTransport implements SolverTransport {
-      requests: SolveRequest[] = []
-
-      async solve(req: SolveRequest): Promise<SolveResult> {
-        this.requests.push(req)
-        return {
-          hero: req.heroRange.map(({ hand }) => ({
-            hand,
-            actions: [{ actionId: 'fold', frequency: 1, ev: 0 }],
-          })),
-          meta: { confidence: 'low', approximate: true, label: 'capture' },
-        }
-      }
-    }
-
     const transport = new CaptureTransport()
     const provider = new PostflopSolverProvider(transport, preflop)
     await provider.getStrategy({
@@ -341,6 +342,47 @@ describe('PostflopSolverProvider', () => {
     expect(transport.requests[0]!.heroCommittedThisStreetChips).toBe(0)
     expect(transport.requests[0]!.villainCommittedThisStreetChips).toBe(500)
     expect(transport.requests[0]!.minRaiseToChips).toBe(1_000)
+    // The turn path the WASM solver replays: BB (OOP) checks, BTN (IP) bets 500.
+    // (Only the current street's actions; prior streets are baked into the pot.)
+    expect(transport.requests[0]!.streetActionPath).toEqual([
+      { actor: 'oop', kind: 'check', toChips: undefined },
+      { actor: 'ip', kind: 'bet', toChips: 500 },
+    ])
+  })
+
+  it('builds an empty street action path for a first-to-act node', async () => {
+    const transport = new CaptureTransport()
+    const provider = new PostflopSolverProvider(transport, preflop)
+    await provider.getStrategy({
+      street: 'flop',
+      heroPosition: 'BB', // OOP, first to act with no prior flop action
+      board: [c('As'), c('Kh'), c('7d')],
+      history: BTN_VS_BB_HISTORY,
+      potChips: 600,
+      effectiveStackChips: 9_750,
+      toCallChips: 0,
+      bigBlindChips: 100,
+    })
+    expect(transport.requests[0]!.streetActionPath).toEqual([])
+  })
+
+  it('builds [oop check] for an IP hero after the OOP player checks', async () => {
+    const transport = new CaptureTransport()
+    const provider = new PostflopSolverProvider(transport, preflop)
+    await provider.getStrategy({
+      street: 'flop',
+      heroPosition: 'BTN', // IP; BB (OOP) checked to it
+      board: [c('As'), c('Kh'), c('7d')],
+      history: [
+        ...BTN_VS_BB_HISTORY,
+        { seatIndex: 2, position: 'BB', street: 'flop', action: { type: 'check' } },
+      ],
+      potChips: 600,
+      effectiveStackChips: 9_750,
+      toCallChips: 0,
+      bigBlindChips: 100,
+    })
+    expect(transport.requests[0]!.streetActionPath).toEqual([{ actor: 'oop', kind: 'check', toChips: undefined }])
   })
 
   it('exposes per-combo strategy so a made flush diverges from its class average', async () => {

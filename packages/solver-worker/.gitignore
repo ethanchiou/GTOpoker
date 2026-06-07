@@ -1,4 +1,5 @@
 # Rust / wasm-pack build outputs (rebuild from source per BUILD.md — multi-MB, AGPL).
 /target
 /pkg
+/pkg-node
 Cargo.lock

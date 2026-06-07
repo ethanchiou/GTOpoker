@@ -2,10 +2,13 @@
 
 > Working handoff for the next engineer/agent. Pairs with [`spec.md`](./spec.md)
 > (full design), [`README.md`](./README.md) (overview), and [`TODO.md`](./TODO.md)
-> (running task log). Last updated: 2026-06-03 — shareable spots (Live Solver +
-> trainer hands) are shipped and browser-QA'd. **Immediate next task:** task 4,
-> the real WASM solver; see §2.1 below. Remaining tasks 4-7 are tracked there and
-> in `TODO.md`.
+> (running task log). Last updated: 2026-06-07 — the **real WASM solver is built
+> and wired in as an opt-in engine**, and **task 4 is complete: Phase A
+> (first-to-act) + Phase B (facing-a-bet tree navigation) both land and are
+> browser-verified.** The WASM engine now serves the full set of heads-up
+> postflop nodes. **Immediate next task:** task 5 — **solver correctness
+> validation** against a reference solver (spec §15 Phase 2); see §2.1.
+> On branch `feat/wasm-postflop-solver`. Remaining tasks 5-7 in §2.1 + `TODO.md`.
 
 ## 1. What this is
 
@@ -22,11 +25,15 @@ The play loop trains flop/turn/river decisions with real per-action EV through t
 
 **Important caveat:** by default the postflop EVs come from an in-process,
 clearly-labeled **baseline transport** (an equity-driven one-shot approximation,
-*not* true CFR/GTO). The real `postflop-solver` is wired as a **drop-in** behind
-the same interface but its WASM artifact has **not been built** (no Rust toolchain
-in this environment). Building it + flipping the transport yields true equilibrium
-EVs with zero consumer changes. The UI labels the baseline ("Approximate baseline
-solver") so it's never mistaken for GTO.
+*not* true CFR/GTO). The real `postflop-solver` WASM is now **built and wired in
+as an opt-in engine** — the **"Exact solver"** setting flips a `RoutingSolverTransport`
+to the real CFR solver (Web Worker) for the streets/nodes it supports, with
+transparent baseline fallback. Baseline stays the default. **Phase A** (build +
+first-to-act nodes, OOP root + IP-after-check) and **Phase B** (facing-a-bet
+nodes, via street-action-path replay) are both done and browser-verified, so the
+WASM engine now serves the full set of heads-up postflop nodes. The UI note
+reflects the real engine per result ("Exact CFR solve (WASM)" vs "Approximate
+baseline solver").
 
 ### Shipped this phase
 - Postflop solver seam: `SolverTransport` / `SolveRequest` / `SolveResult` / weighted `Range`.
@@ -48,68 +55,152 @@ solver") so it's never mistaken for GTO.
   - **Shared core helpers** (in `@gto/strategy` for CI coverage): `equityVsRange` + `potOddsPct` (`equity-vs-range.ts`), `buildPreflopLineNode` + `positionsBefore/After` (`live-node.ts`), and `villainContinuingRange` (`range-handoff.ts`). Tests: `equity-vs-range.test.ts`, `live-node.test.ts`. The web provider construction was extracted to `apps/web/lib/strategyProvider.ts` so both tabs share one provider + solve cache.
   - **spec.md §6.5** — the baseline→WASM transport-swap tradeoffs (benefits / costs / why baseline stays default).
 
-## 2.1 Immediate next task: task 4, the real WASM solver
+## 2.1 Task 4 — COMPLETE (Phase A + Phase B). Next: task 5
 
-Task 3 (shareable Live Solver spots) is complete. Every Live Solver input now
-persists in the URL query string so a spot can be copied, reopened, and used as a
-regression fixture:
+> **Phase B landed 2026-06-07.** Facing-a-bet nodes now solve via WASM by replaying
+> the current street's action path into the CFR tree. Implemented exactly as
+> `PHASE-B-PLAN.md` specifies, across six files: `postflop-types.ts`
+> (`StreetActionStep` + `streetActionPath`), `postflop-provider.ts`
+> (`buildStreetActionPath`, passes the path), `solver-worker/src/lib.rs` (DTO fields,
+> street-start pot/stack reconstruction, `replay_to_hero` + `nearest_aggressive`,
+> dropped the `to_call_chips > 0` Err), `apps/web/lib/solver/index.ts`
+> (`wasmSupports` → permissive, try/catch fallback kept), `postflop.test.ts` (path
+> assertions), `.gitignore` (`/pkg-node`). **Verified:** `pnpm run check` (275 tests),
+> a Rust Node replay harness (`pkg-node/verify-replay.cjs`: OOP-faces-bet,
+> IP-faces-bet, bet→raise, first-to-act regression — all pass, Σfreq≈1, finite EVs),
+> `apps/web` tsc + `next build`, and headless-Chrome (a facing-a-bet turn spot shows
+> "Exact CFR solve (postflop-solver WASM)", first-to-act unregressed, no console errors).
+>
+> **Watch-items (not blockers):** (1) bet/raise action labels render the chip total
+> as "bb" (e.g. "Bet 396bb") — pre-existing, from `action_id_for` emitting
+> `raiseTo:<chips>`; affects Phase A too, fix in the UI label layer. (2) Turn solves
+> with real ranges ran ~20-50s in the dev browser (HANDOFF claimed ~1s) — likely dev
+> mode + concurrent dev servers + the merged preview-bet tree branch; production
+> perf + the pre-solve/abort affordance is task 7.
 
-- **Codec (CI-tested, pure):** `packages/strategy/src/live-spot.ts` +
-  `live-spot.test.ts`. `encode/decodeLiveSolverSpot` map a `LiveSolverSpot`
-  (discriminated preflop|postflop) to/from a `URLSearchParams` string. Cards use
-  the `cardToString`/`cardFromString` tokens (`AsKh`). Decode validates every
-  field independently and drops anything malformed (the caller fills its default);
-  it returns `null` only when `m` (mode) is missing/unknown.
-- **Web glue:** `apps/web/lib/liveSolverUrl.ts` — `readDecodedSpot`,
-  `writeSpotToUrl` (uses `history.replaceState`, no history spam), `liveSpotPresent`,
-  `copyCurrentUrl`, `holeFromCards`. The two leaves (`LiveSolverPreflop`/`Postflop`)
-  seed `useState` from the URL on mount and write back on every input change.
-  `app/page.tsx` flips to the Live Solver tab (in an effect) when a spot is present,
-  so the Live Solver mounts client-only and there is no hydration mismatch.
-- **Full fidelity:** the adjustable pot *and* the preview-bet are restored. Both
-  are normally reset to computed defaults by effects in `LiveSolverPostflop`; those
-  two effects are now guarded by a strict-mode-safe ref-compare (`potStructRef` /
-  `betNodeRef` + `potSeeded` / `betSeeded`) so a URL-seeded value survives mount but
-  a genuine structural change still re-defaults.
-- **UI:** a **Copy link** button next to the Preflop/Postflop switcher in
-  `components/LiveSolver.tsx` (copies `window.location.href`; the URL is always in
-  sync with the inputs).
+### How Phase A was built (Phase B generalized this — kept for reference)
 
-The same copy/paste was then extended to the **trainer**, adapted to its seeded
-engine (a hand reconstructs from seed + button + action history — `buildReplaySteps`
-already relied on this):
+The real `postflop-solver` is built to WASM and wired in as an **opt-in** engine,
+shared by the trainer and the Live Solver. All of this is committed on
+`feat/wasm-postflop-solver` (`ab3aa6f`), off `origin/main`:
 
-- **Codec (CI-tested, pure):** `packages/poker-engine/src/hand-link.ts` +
-  `hand-link.test.ts`. `encode/decodeHandLink` ⇄ `?hand=<seed>&btn=<n>&a=<actions>`
-  (actions like `r250.c.x.b150.f`); `reconstructHandFromLink` re-deals from the seed
-  and replays the actions. A round-trip test asserts reconstruct === the live hand.
-- **Web glue:** `apps/web/lib/trainerUrl.ts` (`readHandLink`, `handLinkPresent`,
-  `copyHandLink`, `clearHandLinkFromUrl`). Store gained `loadHandFromLink`
-  (`lib/store.ts`): a pending hero decision restores as a fresh spot (chart hidden);
-  a finished/folded hand restores with the last decision's GTO feedback re-derived,
-  **without** recording into session stats. Corrupt/illegal links fall back to a
-  fresh hand. `TrainerView.tsx` deep-links on mount and has a **Copy link** button.
-- **Deliberately NOT address-bar-synced** (clipboard-only) so a normal refresh still
-  deals a fresh random hand; **New hand** clears any stale `?hand=` param. `page.tsx`
-  routes a `?hand=` link to the trainer tab, a `?m=` link to the Live Solver.
+- **Toolchain is installed** on this machine: rustup at `~/.cargo` (stable 1.96),
+  `wasm32-unknown-unknown`, `wasm-pack` 0.13.1. If `cargo` "isn't found", run
+  `. "$HOME/.cargo/env"` (it's just off PATH). The old "no Rust toolchain" caveat
+  in `BUILD.md` no longer applies here.
+- **Build:** `pnpm run build:solver` (root) → `wasm-pack build --target web` in
+  `packages/solver-worker`, copies `pkg/` to `apps/web/public/solver/`. Both `pkg/`
+  and `public/solver/` are gitignored (AGPL, multi-MB, rebuilt from source). App
+  falls back to baseline if the artifact is absent.
+- **Cargo pin:** `postflop-solver` rev `9d1509f`, `default-features = false` — drops
+  `bincode` (its 2.0-rc trait impls don't compile against bincode 2.0.1) and `rayon`
+  (no wasm threads). Single-threaded core is what wasm-postflop ships.
+- **`lib.rs`:** every `VERIFY:` marker resolved against the real compiler
+  (`Range::from_hands_weights`, `BetSizeOptions`, qualified `postflop_solver::solve`).
+  Fixed a real runtime bug (cache normalized weights **per node** before EV reads).
+  Per-action EV via `expected_values_detail` (no play/unwind loop). Navigation:
+  **OOP reads root, IP advances past villain's check**. Caller-tunable solve budget
+  (`max_iterations`, `target_exploitability_fraction`).
+- **Web:** `RoutingSolverTransport` (`apps/web/lib/solver/index.ts`) — baseline by
+  default; WASM when the **"Exact solver"** setting is on AND `wasmSupports(req)`
+  (today `toCallChips <= 0`); any worker error falls back to baseline. Worker rejects
+  on solver `error`. `solverEngine` in Settings; toggling repoints the transport and
+  clears the solve cache. Per-street budget in the provider (`solveBudgetFor`).
+- **Verified:** 273 tests + typecheck + lint + `next build` clean; headless-Chrome
+  end-to-end (toggle → WASM turn solve → emerald note, facing-bet → baseline
+  fallback, no console errors).
 
-Verified with `pnpm run check` (193 tests incl. the new codecs), `apps/web` tsc +
-`next build`, and headless Chrome end-to-end for both features: Live Solver preflop +
-postflop deep-links restore exactly (incl. `pot=12bb` / preview `bet=9bb`); trainer
-decision spots and folded hands restore exactly with feedback re-derived, session
-stats stay clean, a clean refresh still randomizes, and there are no console or
-hydration errors.
+### The Phase B problem (SOLVED — kept for context; see the banner above)
 
-Remaining next tasks:
-4. **Real WASM solver:** build the postflop-solver WASM artifact
-   (`packages/solver-worker/BUILD.md`), switch the web transport from baseline to
-   WASM, keep baseline fallback, and resolve the known facing-a-bet navigation TODO.
+`solve_inner` (`lib.rs`) builds the tree for the current street whose **root is the
+OOP player's first action** (check/bet). When the hero **faces a bet**
+(`toCallChips > 0`) the real node is one or more actions deep, so today:
+
+```rust
+if req.to_call_chips > 0.0 { return Err("wasm solver: facing-a-bet nodes not yet supported"); }
+```
+
+…and the router serves the **baseline** for those nodes. Phase B replays the
+street's action path in the tree so WASM handles facing-a-bet too — extending real
+CFR to the bulk of postflop decisions.
+
+### Approach (two layers)
+
+**A — TS contract + provider.** Thread the current street's action path into the
+request so Rust can replay it.
+- `packages/strategy/src/postflop-types.ts` — add to `SolveRequest`:
+  `streetActionPath?: readonly { actor: 'oop'|'ip'; kind: 'check'|'call'|'bet'|'raise'; toChips?: number }[]`
+  (chip amounts are bet-to/raise-to **totals** for the street; baseline ignores it).
+- `packages/strategy/src/postflop-provider.ts` (`solveNode`) — build it from
+  `node.history` filtered to `node.street`, mapping each `ActionRecord` → actor
+  (position vs `heroIsOop`/villain) + kind + `toChips`. `currentStreetSizingContext`
+  already iterates that history — reuse the loop. Pass it in `transport.solve({...})`.
+
+**B — Rust replay (`lib.rs`).**
+1. Build the tree from the **street-start pot** (see gotchas), add the path field to
+   `SolveRequestDto`.
+2. After `solve(...)`, `back_to_root()`, then for each path step `game.play(idx)`
+   where `idx` matches `game.available_actions()`: `check`→`Action::Check`,
+   `call`→`Action::Call`, `bet`/`raise` to `X` → nearest `Bet/Raise/AllIn(amt)`
+   (snap), or add the exact size to the tree so a branch matches.
+3. Assert `game.current_player() == hero_player` after replay; else `Err(...)` →
+   baseline fallback. `read_hero_strategy` is unchanged (reads at the current node).
+4. Drop/relax the `to_call_chips > 0.0` early `Err`.
+
+The existing IP-hero nav (play the OOP check) is the **1-step template** — generalize it.
+
+### Gotchas (get these right or EVs are subtly wrong)
+- **Street-start pot:** `TreeConfig.starting_pot` = pot at the start of the street's
+  betting, NOT `req.pot_chips` (which includes this street's bets). Compute
+  `pot_chips - hero_committed - villain_committed` (both already in the request).
+  **VERIFY FIRST** whether `GameNodeKey.potChips`/`toCallChips` are inclusive of the
+  pending bet — trace `packages/poker-engine` (`decisionPoint`) and `live-node.ts`.
+- **Bet→branch:** postflop-solver sizes are pot-fractions at bet time. Add
+  `villain_bet / pot_at_bet_time` to the street's bet sizes, or snap to nearest.
+- **effective_stack** semantics when `starting_pot` moves earlier; **all-in/low SPR**
+  may snap to `Action::AllIn` (tree `add_allin`/`force_allin` thresholds 1.5/0.15).
+
+### Verify in Node (no browser needed for the Rust logic)
+```bash
+. "$HOME/.cargo/env" && cd packages/solver-worker
+wasm-pack build --target nodejs --release --out-dir pkg-node   # gitignored
+```
+Node ESM script imports `pkg-node/gto_solver_wasm.js`, calls `solve(JSON.stringify(req))`.
+Card = `rank*4 + suit`, rank `0=2..12=A`, suit `0=c,1=d,2=h,3=s` (identity to our
+engine). Cases: OOP-faces-IP-bet (`heroIsOop:true`, path `[{oop,check},{ip,bet,X}]`),
+IP-faces-OOP-bet (`heroIsOop:false`, path `[{oop,bet,X}]`), bet-raise (multi-step).
+Assert: available actions include fold/call/raise, Σfreq=1.000/combo, no panic,
+finite EVs. Use a 4-card turn board for fast iteration.
+
+### Files to touch
+`postflop-types.ts` (add field) · `postflop-provider.ts` (build+pass path) ·
+`solver-worker/src/lib.rs` (DTO field, street-start pot, replay+snap, drop the Err) ·
+`apps/web/lib/solver/index.ts` (relax `wasmSupports` to allow `toCallChips > 0`,
+keep the try/catch fallback). Baseline transport needs no change. Then
+`pnpm run build:solver` → `pnpm run check` → browser-verify a facing-a-bet turn spot
+shows the emerald "Exact CFR solve (WASM)" note.
+
+### Reference map (crate source)
+`~/.cargo/git/checkouts/postflop-solver-*/9d1509f/src/`: `game/interpreter.rs`
+(`play`, `available_actions`, `strategy` = `[action*num_hands+hand]`,
+`expected_values_detail` same layout, `cache_normalized_weights`, `back_to_root`,
+`current_player`); `action_tree.rs` (`Action` enum, `TreeConfig`, `BetSizeOptions`);
+`card.rs` (`Card=u8`, `4*rank+suit`); `range.rs` (`from_hands_weights`).
+
+### Perf (already characterized)
+Real preflop-derived ranges are hundreds of combos (not the 3-combo harness): river
+instant, turn ~1s at the tuned budget, **flop seconds-to-slow** (enumerates every
+turn+river runout). Facing-a-bet costs ~the same as first-to-act on the same street.
+Flop usability is the separate pre-solve effort (task 7).
+
+### Remaining tasks after Phase B
 5. **Solver correctness validation:** validate range handoff and postflop outputs
    against the WASM/Postflop reference solver within tolerances (spec §15 Phase 2).
 6. **Preflop data/tree depth:** replace hand-authored ranges with solved/licensed
-   preflop GTO data, then add cold 4-bets, 5-bets, squeezes, and cold-call branches.
-7. **Trainer product features:** add cumulative per-hand EV, pre-solve-on-flop with
-   progress/abort, session persistence, hand histories, and drill modes.
+   preflop GTO data; promote multiway (squeeze / cold-call / cold-4bet) from the
+   derived fallback to explicit solved charts + a Live Solver line.
+7. **Trainer product features:** cumulative per-hand EV, pre-solve-on-flop with
+   progress/abort, session persistence, hand histories, drill modes.
 
 ## 3. Scope
 

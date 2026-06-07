@@ -40,9 +40,23 @@
   4-bet" line (node builder + URL codec + UI picker), verified in headless Chrome.
 - **Shareable trainer hands:** the same copy/paste, adapted to the trainer's seeded engine. A hand is fully reproducible from its seed (which seeds the deck → hole cards *and* board), the button seat, and the action sequence, so the codec encodes just those (`packages/poker-engine/src/hand-link.ts` + `hand-link.test.ts`; `encode/decodeHandLink` + `reconstructHandFromLink`, CI-tested incl. a "reconstruct === live hand" round-trip). A **Copy link** button (`TrainerView.tsx`) builds a one-off shareable URL (`?hand=<seed>&btn=<n>&a=<actions>`) and copies it; opening such a URL deep-links into that exact hand. The store gained `loadHandFromLink` (`lib/store.ts`): a pending hero decision restores as a fresh spot (chart hidden), and a finished/folded hand restores with the last decision's GTO feedback **re-derived** — without touching session stats (it's someone else's hand). Unlike the Live Solver the address bar is **not** continuously synced (clipboard-only via `lib/trainerUrl.ts`), so a normal refresh still deals a fresh random hand; **New hand** clears any stale param. Corrupt/illegal links fall back to a fresh hand. Verified in headless Chrome: decision spots and folded hands restore exactly, feedback re-derives, stats stay clean, refresh still randomizes, no console errors.
 
+- **Real WASM postflop solver (task 4 — Phase A + Phase B).** Built `postflop-solver`
+  to WASM (`pnpm run build:solver`) and wired it as an opt-in **"Exact solver"** engine
+  behind `RoutingSolverTransport`; baseline stays the default with transparent fallback.
+  Phase A served first-to-act nodes; **Phase B** added facing-a-bet nodes by threading
+  the current street's action path (`streetActionPath`) into the request and replaying
+  it into the CFR tree in Rust (`replay_to_hero` snaps each villain bet/raise to the
+  nearest tree size; street-start pot/effective-stack reconstructed from the per-street
+  commitments). The WASM engine now serves the full set of heads-up postflop nodes.
+  Verified: `pnpm run check` (275 tests), a Rust Node replay harness
+  (`pkg-node/verify-replay.cjs`), `apps/web` tsc + `next build`, and headless-Chrome
+  (facing-a-bet turn → "Exact CFR solve (WASM)"; first-to-act unregressed; no console
+  errors). Watch-items (not blockers): bet/raise labels show chip totals as "bb"
+  (UI label layer; pre-existing); turn solves ran slow in the dev browser (production
+  perf + pre-solve/abort is Next #7).
+
 ## Next
 
-4. **Real WASM solver:** build the postflop-solver WASM artifact (`packages/solver-worker/BUILD.md`), switch the web transport from baseline to WASM, keep baseline fallback, and resolve the known facing-a-bet navigation TODO.
 5. **Solver correctness validation:** validate range handoff and postflop outputs against the WASM/Postflop reference solver within tolerances (spec §15 Phase 2).
 6. **Preflop data/tree depth:** the linear tree (RFI → vs-RFI → vs-3bet → vs-4bet → vs-5bet) and a
    derived multiway fallback now ship hand-authored (see Completed). Remaining: replace the

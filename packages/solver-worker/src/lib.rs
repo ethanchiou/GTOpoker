@@ -26,6 +26,20 @@ struct ComboDto {
     weight: f32,
 }
 
+/// One already-taken action on the current street, for replaying the tree to the
+/// hero's facing-a-bet node (Phase B). Mirrors TS `StreetActionStep`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StreetStepDto {
+    /// "oop" | "ip" — the player who took the action.
+    actor: String,
+    /// "check" | "call" | "bet" | "raise".
+    kind: String,
+    /// Bet/raise: total chips committed this street after the action.
+    #[serde(default)]
+    to_chips: Option<f64>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SolveRequestDto {
@@ -35,8 +49,22 @@ struct SolveRequestDto {
     pot_chips: f64,
     effective_stack_chips: f64,
     big_blind_chips: f64,
+    /// Part of the request contract; the facing-a-bet node is now reached by
+    /// replaying `street_action_path`, so this is no longer read directly.
+    #[allow(dead_code)]
     to_call_chips: f64,
     bet_fractions: Vec<f64>,
+    /// Hero's / villain's chips committed on this street before the hero acts. Used
+    /// to recover the street-start pot and effective stack (the tree is built from
+    /// the start of this street's betting, not the current node).
+    #[serde(default)]
+    hero_committed_this_street_chips: f64,
+    #[serde(default)]
+    villain_committed_this_street_chips: f64,
+    /// The current street's action path before the hero's decision, in order. The
+    /// solver replays it to reach a facing-a-bet hero node. Empty = first to act.
+    #[serde(default)]
+    street_action_path: Vec<StreetStepDto>,
     #[serde(default)]
     hero_is_oop: bool,
     #[serde(default)]
@@ -163,10 +191,25 @@ fn solve_inner(req: &SolveRequestDto) -> Result<SolveResultDto, String> {
     let bet_sizes = bet_size_string(&req.bet_fractions);
     let bet = BetSizeOptions::try_from((bet_sizes.as_str(), bet_sizes.as_str())).unwrap();
 
+    // The tree is built from the START of this street's betting. `pot_chips` is the
+    // current pot (inclusive of this street's bets), so subtract both players'
+    // this-street commitments to recover the street-start pot. The engine's
+    // `effective_stack_chips` is the hero's *current remaining* stack; because
+    // heads-up postflop stacks are equal at the start of every street (the caller
+    // matches to reach each street), adding the hero's this-street commitment
+    // recovers the street-start effective stack. Both are no-ops for a first-to-act
+    // node (committed == 0), so Phase A is unchanged.
+    let hero_committed = req.hero_committed_this_street_chips;
+    let villain_committed = req.villain_committed_this_street_chips;
+    let starting_pot = (req.pot_chips - hero_committed - villain_committed)
+        .round()
+        .max(1.0) as i32;
+    let effective_stack = (req.effective_stack_chips + hero_committed).round().max(1.0) as i32;
+
     let tree_config = TreeConfig {
         initial_state: board_state_for(&req.board),
-        starting_pot: req.pot_chips.round() as i32,
-        effective_stack: req.effective_stack_chips.round() as i32,
+        starting_pot,
+        effective_stack,
         rake_rate: req.rake_percent,
         rake_cap: req.rake_cap_chips,
         flop_bet_sizes: [bet.clone(), bet.clone()],
@@ -191,27 +234,11 @@ fn solve_inner(req: &SolveRequestDto) -> Result<SolveResultDto, String> {
     postflop_solver::solve(&mut game, max_iter, (req.pot_chips * target_frac) as f32, false);
 
     // Navigate to the hero's decision node before reading. The action tree's root
-    // is always the OOP player's first action.
+    // is always the OOP player's first action, so replay this street's action path
+    // (e.g. [OOP check, IP bet] for an OOP hero facing a bet) to reach the hero.
+    // A first-to-act node has an empty path and stays at the root.
     let hero_player = if req.hero_is_oop { 0 } else { 1 };
-    if req.to_call_chips > 0.0 {
-        // Facing a bet: the hero's node sits past villain's bet. Reconstructing
-        // that line needs the street action path (Phase B). The baseline transport
-        // serves these correctly today, so signal a fallback rather than reading
-        // the wrong (root) node.
-        return Err("wasm solver: facing-a-bet nodes not yet supported".to_string());
-    }
-    game.back_to_root();
-    if !req.hero_is_oop {
-        // Hero is in position with nothing to call, so OOP checked to it. Advance
-        // past that check to reach the hero's first decision. (A check moves no
-        // chips, so the node's pot/stack accounting is unchanged.)
-        let actions = game.available_actions();
-        let check_idx = actions
-            .iter()
-            .position(|a| matches!(a, Action::Check))
-            .ok_or_else(|| "wasm solver: expected an OOP check before the IP hero's turn".to_string())?;
-        game.play(check_idx);
-    }
+    replay_to_hero(&mut game, &req.street_action_path, hero_player)?;
 
     let hero_strategy = read_hero_strategy(&mut game, hero_player, to_bb);
 
@@ -223,6 +250,67 @@ fn solve_inner(req: &SolveRequestDto) -> Result<SolveResultDto, String> {
             label: "wasm".to_string(),
         },
     })
+}
+
+/// Replay this street's action path from the tree root so the current node is the
+/// hero's decision. Each bet/raise snaps to the nearest tree size (villain sizes
+/// are drawn from the same pot-fraction tree the solver builds, so the match is
+/// exact in practice). Returns `Err` on any mismatch so the caller falls back to
+/// the baseline rather than reading the wrong node.
+fn replay_to_hero(
+    game: &mut PostFlopGame,
+    path: &[StreetStepDto],
+    hero_player: usize,
+) -> Result<(), String> {
+    game.back_to_root();
+    for step in path {
+        if game.is_terminal_node() || game.is_chance_node() {
+            return Err("wasm solver: replay reached a terminal/chance node".to_string());
+        }
+        let expected = match step.actor.as_str() {
+            "oop" => 0usize,
+            "ip" => 1usize,
+            other => return Err(format!("wasm solver: bad actor '{other}'")),
+        };
+        if game.current_player() != expected {
+            return Err("wasm solver: replay actor/current-player mismatch".to_string());
+        }
+        let actions = game.available_actions();
+        let idx = match step.kind.as_str() {
+            "check" => actions.iter().position(|a| matches!(a, Action::Check)),
+            "call" => actions.iter().position(|a| matches!(a, Action::Call)),
+            "bet" | "raise" => {
+                nearest_aggressive(&actions, step.to_chips.unwrap_or(0.0).round() as i32)
+            }
+            other => return Err(format!("wasm solver: unsupported step kind '{other}'")),
+        }
+        .ok_or_else(|| format!("wasm solver: no matching action for step '{}'", step.kind))?;
+        game.play(idx);
+    }
+    if game.is_terminal_node() || game.is_chance_node() {
+        return Err("wasm solver: replay did not end at a player decision".to_string());
+    }
+    if game.current_player() != hero_player {
+        return Err("wasm solver: replay did not reach the hero's decision node".to_string());
+    }
+    Ok(())
+}
+
+/// Index of the Bet/Raise/AllIn action whose total this-street amount is nearest to
+/// `target` chips. `None` if the node offers no aggressive action.
+fn nearest_aggressive(actions: &[Action], target: i32) -> Option<usize> {
+    let mut best: Option<(usize, i32)> = None;
+    for (i, a) in actions.iter().enumerate() {
+        let amt = match a {
+            Action::Bet(x) | Action::Raise(x) | Action::AllIn(x) => *x,
+            _ => continue,
+        };
+        let d = (amt - target).abs();
+        if best.map_or(true, |(_, bd)| d < bd) {
+            best = Some((i, d));
+        }
+    }
+    best.map(|(i, _)| i)
 }
 
 fn board_state_for(board: &[u8]) -> BoardState {

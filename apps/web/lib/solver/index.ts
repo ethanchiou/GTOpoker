@@ -24,13 +24,15 @@ export function getSolverEngine(): SolverEngine {
 }
 
 /**
- * Nodes the WASM solver computes correctly today: a first-to-act decision (no bet
- * to call). Hero OOP reads the tree root; hero IP advances past villain's check.
- * Facing-a-bet nodes need tree navigation that isn't built yet (Phase B), so they
- * route to the baseline.
+ * Heads-up postflop nodes the WASM solver can compute. As of Phase B this is all
+ * of them: first-to-act nodes read the tree directly, and facing-a-bet nodes are
+ * reached by replaying the street's action path (`streetActionPath`) into the
+ * tree. Multiway is already filtered upstream (PostflopSolverProvider.supports),
+ * and any worker error (missing artifact, replay that can't reach the hero node,
+ * a panic) still falls back to the baseline via the try/catch in `solve`.
  */
-function wasmSupports(req: SolveRequest): boolean {
-  return (req.toCallChips ?? 0) <= 0
+function wasmSupports(_req: SolveRequest): boolean {
+  return true
 }
 
 /**
