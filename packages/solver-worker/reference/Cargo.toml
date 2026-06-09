@@ -1,0 +1,33 @@
+# Crate-native reference harness for solver correctness validation (task 5).
+#
+# This is DELIBERATELY independent of the `gto-solver-wasm` glue crate: it links
+# `postflop-solver` directly (the exact engine wasm-postflop runs) and builds each
+# spot from its TRUE street-start values via the crate's native API. The TS
+# comparator (`packages/strategy/src/solver-wasm.test.ts`) then feeds the matching
+# request through our WASM glue and asserts the two agree within tolerance — so any
+# bug in our reconstruction (street-start pot/stack, range encoding, replay/snap,
+# EV reads) shows up as divergence.
+#
+# Regenerate the fixture with:
+#   pnpm run validate:solver:reference     (from the repo root)
+# Same pin + features as the glue crate so the engines match.
+
+[package]
+name = "gto-solver-reference"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0"
+publish = false
+description = "Crate-native reference output for GTO Trainer solver validation"
+
+[[bin]]
+name = "reference"
+path = "src/main.rs"
+
+[dependencies]
+postflop-solver = { git = "https://github.com/b-inary/postflop-solver", rev = "9d1509fe5077d019825f833eed04b16d342dfda1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3

@@ -1,0 +1,3 @@
+# Rust build output for the reference harness (rebuilt from source in CI).
+/target
+Cargo.lock

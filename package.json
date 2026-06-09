@@ -14,7 +14,9 @@
     "test:watch": "vitest",
     "lint": "depcruise packages --config .dependency-cruiser.cjs",
     "check": "pnpm run build && pnpm run lint && pnpm run test",
-    "build:solver": "cd packages/solver-worker && wasm-pack build --target web --release --out-dir pkg && mkdir -p ../../apps/web/public/solver && cp pkg/gto_solver_wasm.js pkg/gto_solver_wasm_bg.wasm ../../apps/web/public/solver/"
+    "build:solver": "cd packages/solver-worker && wasm-pack build --target web --release --out-dir pkg && mkdir -p ../../apps/web/public/solver && cp pkg/gto_solver_wasm.js pkg/gto_solver_wasm_bg.wasm ../../apps/web/public/solver/",
+    "build:solver:node": "cd packages/solver-worker && wasm-pack build --target nodejs --release --out-dir pkg-node",
+    "validate:solver:reference": "cd packages/solver-worker/reference && cargo run --release > ../validation/reference-spots.json"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

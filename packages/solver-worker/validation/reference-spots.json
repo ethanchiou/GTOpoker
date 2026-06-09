@@ -1,0 +1,1054 @@
+{
+  "tolerance": {
+    "freq": 0.02,
+    "ev": 0.1
+  },
+  "spots": [
+    {
+      "name": "turn: OOP first to act",
+      "request": {
+        "board": [
+          51,
+          46,
+          21,
+          0
+        ],
+        "heroRange": [
+          {
+            "hand": [
+              42,
+              43
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              37,
+              38
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              28,
+              29
+            ],
+            "weight": 1.0
+          }
+        ],
+        "villainRange": [
+          {
+            "hand": [
+              48,
+              41
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              47,
+              40
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              33,
+              30
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              26,
+              27
+            ],
+            "weight": 1.0
+          }
+        ],
+        "potChips": 600.0,
+        "effectiveStackChips": 9700.0,
+        "bigBlindChips": 100.0,
+        "toCallChips": 0.0,
+        "heroCommittedThisStreetChips": 0.0,
+        "villainCommittedThisStreetChips": 0.0,
+        "streetActionPath": [],
+        "betFractions": [
+          0.5,
+          1.0
+        ],
+        "heroIsOop": true,
+        "maxIterations": 256,
+        "targetExploitabilityFraction": 0.002
+      },
+      "expected": [
+        {
+          "hand": [
+            28,
+            29
+          ],
+          "actions": [
+            {
+              "actionId": "check",
+              "frequency": 1.0,
+              "ev": -0.0008734131
+            },
+            {
+              "actionId": "raiseTo:300",
+              "frequency": 0.0,
+              "ev": -0.019282227
+            },
+            {
+              "actionId": "raiseTo:600",
+              "frequency": 0.0,
+              "ev": -0.20909546
+            }
+          ]
+        },
+        {
+          "hand": [
+            37,
+            38
+          ],
+          "actions": [
+            {
+              "actionId": "check",
+              "frequency": 0.99999774,
+              "ev": -0.0065893554
+            },
+            {
+              "actionId": "raiseTo:300",
+              "frequency": 2.9216795e-7,
+              "ev": -0.015980225
+            },
+            {
+              "actionId": "raiseTo:600",
+              "frequency": 0.0000019540153,
+              "ev": -0.13459991
+            }
+          ]
+        },
+        {
+          "hand": [
+            42,
+            43
+          ],
+          "actions": [
+            {
+              "actionId": "check",
+              "frequency": 1.0,
+              "ev": -0.0030163573
+            },
+            {
+              "actionId": "raiseTo:300",
+              "frequency": 9.4445305e-9,
+              "ev": -0.050570067
+            },
+            {
+              "actionId": "raiseTo:600",
+              "frequency": 0.0,
+              "ev": -0.5244983
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "turn: OOP faces IP bet",
+      "request": {
+        "board": [
+          51,
+          46,
+          21,
+          0
+        ],
+        "heroRange": [
+          {
+            "hand": [
+              42,
+              43
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              37,
+              38
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              28,
+              29
+            ],
+            "weight": 1.0
+          }
+        ],
+        "villainRange": [
+          {
+            "hand": [
+              48,
+              41
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              47,
+              40
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              33,
+              30
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              26,
+              27
+            ],
+            "weight": 1.0
+          }
+        ],
+        "potChips": 900.0,
+        "effectiveStackChips": 9700.0,
+        "bigBlindChips": 100.0,
+        "toCallChips": 300.0,
+        "heroCommittedThisStreetChips": 0.0,
+        "villainCommittedThisStreetChips": 300.0,
+        "streetActionPath": [
+          {
+            "actor": "oop",
+            "kind": "check",
+            "toChips": null
+          },
+          {
+            "actor": "ip",
+            "kind": "bet",
+            "toChips": 300.0
+          }
+        ],
+        "betFractions": [
+          0.5,
+          1.0
+        ],
+        "heroIsOop": true,
+        "maxIterations": 256,
+        "targetExploitabilityFraction": 0.002
+      },
+      "expected": [
+        {
+          "hand": [
+            28,
+            29
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.983862,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.016138092,
+              "ev": -0.07087616
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.0,
+              "ev": -2.62633
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.0,
+              "ev": -3.4370759
+            }
+          ]
+        },
+        {
+          "hand": [
+            37,
+            38
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.9349374,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.0650626,
+              "ev": -0.32124177
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.0,
+              "ev": -2.7240577
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.0,
+              "ev": -3.3309937
+            }
+          ]
+        },
+        {
+          "hand": [
+            42,
+            43
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.9875084,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.0124915335,
+              "ev": -0.057326354
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.0,
+              "ev": -3.0370953
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.0,
+              "ev": -4.007527
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "turn: IP faces OOP bet",
+      "request": {
+        "board": [
+          51,
+          46,
+          21,
+          0
+        ],
+        "heroRange": [
+          {
+            "hand": [
+              48,
+              41
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              47,
+              40
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              33,
+              30
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              26,
+              27
+            ],
+            "weight": 1.0
+          }
+        ],
+        "villainRange": [
+          {
+            "hand": [
+              42,
+              43
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              37,
+              38
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              28,
+              29
+            ],
+            "weight": 1.0
+          }
+        ],
+        "potChips": 900.0,
+        "effectiveStackChips": 9700.0,
+        "bigBlindChips": 100.0,
+        "toCallChips": 300.0,
+        "heroCommittedThisStreetChips": 0.0,
+        "villainCommittedThisStreetChips": 300.0,
+        "streetActionPath": [
+          {
+            "actor": "oop",
+            "kind": "bet",
+            "toChips": 300.0
+          }
+        ],
+        "betFractions": [
+          0.5,
+          1.0
+        ],
+        "heroIsOop": false,
+        "maxIterations": 256,
+        "targetExploitabilityFraction": 0.002
+      },
+      "expected": [
+        {
+          "hand": [
+            26,
+            27
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.04603936,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.18866669,
+              "ev": 4.0165524
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.33369315,
+              "ev": -5.7148347
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.43160078,
+              "ev": -11.445298
+            }
+          ]
+        },
+        {
+          "hand": [
+            30,
+            33
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.07189249,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.19882709,
+              "ev": 3.2568514
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.3223079,
+              "ev": -7.7756276
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.4069725,
+              "ev": -11.365349
+            }
+          ]
+        },
+        {
+          "hand": [
+            40,
+            47
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.0,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.41810814,
+              "ev": 9.476821
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.27336967,
+              "ev": 18.690817
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.30852222,
+              "ev": 30.011616
+            }
+          ]
+        },
+        {
+          "hand": [
+            41,
+            48
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.0,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.41810814,
+              "ev": 9.476821
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.27336967,
+              "ev": 18.690817
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.30852222,
+              "ev": 30.011616
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "turn: OOP faces IP raise (bet-raise)",
+      "request": {
+        "board": [
+          51,
+          46,
+          21,
+          0
+        ],
+        "heroRange": [
+          {
+            "hand": [
+              42,
+              43
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              37,
+              38
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              28,
+              29
+            ],
+            "weight": 1.0
+          }
+        ],
+        "villainRange": [
+          {
+            "hand": [
+              48,
+              41
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              47,
+              40
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              33,
+              30
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              26,
+              27
+            ],
+            "weight": 1.0
+          }
+        ],
+        "potChips": 1800.0,
+        "effectiveStackChips": 9400.0,
+        "bigBlindChips": 100.0,
+        "toCallChips": 600.0,
+        "heroCommittedThisStreetChips": 300.0,
+        "villainCommittedThisStreetChips": 900.0,
+        "streetActionPath": [
+          {
+            "actor": "oop",
+            "kind": "bet",
+            "toChips": 300.0
+          },
+          {
+            "actor": "ip",
+            "kind": "raise",
+            "toChips": 900.0
+          }
+        ],
+        "betFractions": [
+          0.5,
+          1.0
+        ],
+        "heroIsOop": true,
+        "maxIterations": 256,
+        "targetExploitabilityFraction": 0.002
+      },
+      "expected": [
+        {
+          "hand": [
+            28,
+            29
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.0,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 1.0,
+              "ev": 0.0
+            },
+            {
+              "actionId": "raiseTo:2100",
+              "frequency": 0.0,
+              "ev": 0.0
+            },
+            {
+              "actionId": "raiseTo:3300",
+              "frequency": 0.0,
+              "ev": 0.0
+            }
+          ]
+        },
+        {
+          "hand": [
+            37,
+            38
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.0,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 1.0,
+              "ev": 4.1660676
+            },
+            {
+              "actionId": "raiseTo:2100",
+              "frequency": 0.0,
+              "ev": -0.041915283
+            },
+            {
+              "actionId": "raiseTo:3300",
+              "frequency": 0.0,
+              "ev": -0.61903626
+            }
+          ]
+        },
+        {
+          "hand": [
+            42,
+            43
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.0,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 1.0,
+              "ev": 4.2003713
+            },
+            {
+              "actionId": "raiseTo:2100",
+              "frequency": 0.0,
+              "ev": -1.0270978
+            },
+            {
+              "actionId": "raiseTo:3300",
+              "frequency": 0.0,
+              "ev": -0.20329957
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "river: OOP first to act",
+      "request": {
+        "board": [
+          51,
+          46,
+          21,
+          0,
+          31
+        ],
+        "heroRange": [
+          {
+            "hand": [
+              42,
+              43
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              37,
+              38
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              28,
+              29
+            ],
+            "weight": 1.0
+          }
+        ],
+        "villainRange": [
+          {
+            "hand": [
+              48,
+              41
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              47,
+              40
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              33,
+              30
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              26,
+              27
+            ],
+            "weight": 1.0
+          }
+        ],
+        "potChips": 600.0,
+        "effectiveStackChips": 9700.0,
+        "bigBlindChips": 100.0,
+        "toCallChips": 0.0,
+        "heroCommittedThisStreetChips": 0.0,
+        "villainCommittedThisStreetChips": 0.0,
+        "streetActionPath": [],
+        "betFractions": [
+          0.5,
+          1.0
+        ],
+        "heroIsOop": true,
+        "maxIterations": 256,
+        "targetExploitabilityFraction": 0.002
+      },
+      "expected": [
+        {
+          "hand": [
+            28,
+            29
+          ],
+          "actions": [
+            {
+              "actionId": "check",
+              "frequency": 0.3418548,
+              "ev": 7.6687884
+            },
+            {
+              "actionId": "raiseTo:300",
+              "frequency": 1.204681e-7,
+              "ev": 7.2331166
+            },
+            {
+              "actionId": "raiseTo:600",
+              "frequency": 0.658145,
+              "ev": 7.6799912
+            }
+          ]
+        },
+        {
+          "hand": [
+            37,
+            38
+          ],
+          "actions": [
+            {
+              "actionId": "check",
+              "frequency": 0.83420604,
+              "ev": 2.6662545
+            },
+            {
+              "actionId": "raiseTo:300",
+              "frequency": 0.00016872276,
+              "ev": 2.5078056
+            },
+            {
+              "actionId": "raiseTo:600",
+              "frequency": 0.16562518,
+              "ev": 2.640016
+            }
+          ]
+        },
+        {
+          "hand": [
+            42,
+            43
+          ],
+          "actions": [
+            {
+              "actionId": "check",
+              "frequency": 0.83420604,
+              "ev": 2.6662545
+            },
+            {
+              "actionId": "raiseTo:300",
+              "frequency": 0.00016872276,
+              "ev": 2.5078056
+            },
+            {
+              "actionId": "raiseTo:600",
+              "frequency": 0.16562518,
+              "ev": 2.640016
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "river: IP faces OOP bet",
+      "request": {
+        "board": [
+          51,
+          46,
+          21,
+          0,
+          31
+        ],
+        "heroRange": [
+          {
+            "hand": [
+              48,
+              41
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              47,
+              40
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              33,
+              30
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              26,
+              27
+            ],
+            "weight": 1.0
+          }
+        ],
+        "villainRange": [
+          {
+            "hand": [
+              42,
+              43
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              37,
+              38
+            ],
+            "weight": 1.0
+          },
+          {
+            "hand": [
+              28,
+              29
+            ],
+            "weight": 1.0
+          }
+        ],
+        "potChips": 900.0,
+        "effectiveStackChips": 9700.0,
+        "bigBlindChips": 100.0,
+        "toCallChips": 300.0,
+        "heroCommittedThisStreetChips": 0.0,
+        "villainCommittedThisStreetChips": 300.0,
+        "streetActionPath": [
+          {
+            "actor": "oop",
+            "kind": "bet",
+            "toChips": 300.0
+          }
+        ],
+        "betFractions": [
+          0.5,
+          1.0
+        ],
+        "heroIsOop": false,
+        "maxIterations": 256,
+        "targetExploitabilityFraction": 0.002
+      },
+      "expected": [
+        {
+          "hand": [
+            26,
+            27
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.99884576,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.0,
+              "ev": -3.0
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.00023260398,
+              "ev": -4.3590064
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.00092170615,
+              "ev": 0.15718994
+            }
+          ]
+        },
+        {
+          "hand": [
+            30,
+            33
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.99884576,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.0,
+              "ev": -3.0
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.00023260398,
+              "ev": -4.3590064
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.00092170615,
+              "ev": 0.15718994
+            }
+          ]
+        },
+        {
+          "hand": [
+            40,
+            47
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.22296278,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.7729004,
+              "ev": 8.995717
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.00019484128,
+              "ev": 5.316868
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.0039419415,
+              "ev": 7.117237
+            }
+          ]
+        },
+        {
+          "hand": [
+            41,
+            48
+          ],
+          "actions": [
+            {
+              "actionId": "fold",
+              "frequency": 0.22296278,
+              "ev": 0.0
+            },
+            {
+              "actionId": "call",
+              "frequency": 0.7729004,
+              "ev": 8.995717
+            },
+            {
+              "actionId": "raiseTo:900",
+              "frequency": 0.00019484128,
+              "ev": 5.316868
+            },
+            {
+              "actionId": "raiseTo:1500",
+              "frequency": 0.0039419415,
+              "ev": 7.117237
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
