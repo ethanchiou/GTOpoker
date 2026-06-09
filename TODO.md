@@ -55,15 +55,35 @@
   (UI label layer; pre-existing); turn solves ran slow in the dev browser (production
   perf + pre-solve/abort is Next #7).
 
+- **Solver correctness validation (task 5, spec §15 Phase 2).** Validated against a
+  **crate-native reference** — a separate binary crate (`packages/solver-worker/reference/`)
+  that links `postflop-solver` directly and solves each spot from its true street-start
+  values, so the comparison is a differential test of *our glue* (range encoding, the
+  street-start pot/effective-stack reconstruction, the Phase B replay/snap, the EV read).
+  Four parts: (A) our WASM vs the reference within tolerance per combo/action; (B) range
+  handoff — exact combo enumeration, multi-action weight products, raise-size snapping,
+  `villainContinuingRange`; (C) a baseline-vs-exact drift monitor (logged; baseline tracks
+  well first-to-act/river, drifts ~0.45 mean on turn facing-bet); (D) solve-cache identity +
+  determinism; (E) graceful degradation (over-budget/too-large trees decline to baseline).
+  Pure-TS parts run in `pnpm run check` (`solver-validation.test.ts`); WASM parts run in a
+  new **`wasm` CI job** that also closes the `apps/web` build gate (`solver-wasm.test.ts`,
+  `skipIf` pkg-node absent). New scripts: `build:solver:node`, `validate:solver:reference`.
+  Robustness fix found in QA: a wide flop / over-large tree made the WASM `solve` panic via
+  `.unwrap()` (`with_config` → "Too many nodes"; `allocate_memory` → isize cap), trapping the
+  worker. Now `lib.rs` returns typed errors (`map_err` on the builds + a `memory_usage()`
+  pre-check vs `MAX_SOLVE_BYTES` ~1.86 GiB, tunable via `maxSolveBytes`) → baseline fallback,
+  no trap. See `packages/solver-worker/BUILD.md` → Validation. Verified: `pnpm run check`
+  (305 tests) + the WASM suite + `apps/web` tsc/`next build` + a headless-Chrome QA pass,
+  all green.
+
 ## Next
 
-5. **Solver correctness validation:** validate range handoff and postflop outputs against the WASM/Postflop reference solver within tolerances (spec §15 Phase 2).
 6. **Preflop data/tree depth:** the linear tree (RFI → vs-RFI → vs-3bet → vs-4bet → vs-5bet) and a
    derived multiway fallback now ship hand-authored (see Completed). Remaining: replace the
    hand-authored ranges with solved/licensed GTO data (bump `confidence`), and promote the multiway
    spots (squeeze / cold-call / cold-4bet) from the derived approximation to explicit solved charts —
    plus a Live Solver line for them.
-7. **Trainer product features:** add cumulative per-hand EV, pre-solve-on-flop with progress/abort, session persistence, hand histories, and drill modes.
+7. **Trainer product features:** add cumulative per-hand EV, pre-solve-on-flop with progress/abort, session persistence, hand histories, and drill modes. Note: over-budget/too-large WASM solves now *decline to baseline gracefully* (no trap — task 5 robustness fix), so this item is about making flop solves actually compute (perf + pre-solve/abort), not crash-handling.
 
 ## Pre-deploy / deployment readiness
 
@@ -71,18 +91,22 @@ Gates an actual launch; orthogonal to the feature work in "Next". None of this i
 configured yet (surfaced in the pre-deploy scope review). The headline blocker — the web app not
 compiling — is already resolved (shareable trainer hands landed; `next build` is green).
 
-- **Add `apps/web` to CI.** The root gate (`pnpm run check`) only covers `packages/*/src`; the web
-  app is neither typechecked nor built in CI, so a broken `next build` can reach a deploy undetected
-  (it briefly did). Add web `tsc --noEmit` + `next build` to `.github/workflows/ci.yml`.
+- **Add `apps/web` to CI.** ✅ Largely done (task 5): the new `wasm` CI job runs web `tsc --noEmit`
+  + `next build` after building the WASM artifact. Caveat: it only fires if the Rust toolchain step
+  succeeds, so a Rust/wasm-pack outage would skip the web gate too. Consider also adding a
+  toolchain-free `next build` step to the `check` job if you want the web build gated independently
+  of the solver build.
 - **Configure a static-export deploy target.** `output: 'export'` is set but no host is wired
   (Vercel / Netlify / GitHub Pages / S3). Pick one and verify the `apps/web/out/` artifact deploys
   and loads clean.
 - **Add an E2E smoke test.** Spec §15 calls for Playwright (fixed-seed: play hand → feedback →
   complete → stats update); none exist today. At least one smoke path before launch.
 - **AGPL-3.0 deploy decision (gate before shipping WASM).** The baseline transport carries no
-  copyleft and ships clean. Building/hosting the `postflop-solver` WASM (Next #4) triggers AGPL-3.0's
+  copyleft and ships clean. Building/hosting the `postflop-solver` WASM triggers AGPL-3.0's
   source-availability obligation (met by this repo being public, but a conscious call). Decide before
-  flipping a public deploy to the WASM transport.
+  flipping a public deploy to the WASM transport. Note: the `wasm` CI job now *builds* the artifact
+  for validation — that's not distribution to end users, so it doesn't itself trigger the obligation;
+  the gate is still the public *deploy* serving the WASM transport.
 - **Session-stats persistence decision.** Today only *settings* persist (localStorage); session stats
   live in memory and are lost on refresh (no `SessionStore` / IndexedDB yet — part of Next #7). Decide
   whether ephemeral stats are acceptable for the first launch or persistence is pulled forward.

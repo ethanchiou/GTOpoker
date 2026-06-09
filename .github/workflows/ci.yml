@@ -19,3 +19,45 @@ jobs:
       - run: pnpm run build
       - run: pnpm run lint
       - run: pnpm run test
+
+  # Solver correctness validation (task 5) + the apps/web build gate. Kept separate
+  # from `check` because it needs the Rust/wasm toolchain (minutes to build the
+  # postflop-solver crate). The WASM validation tests skip when pkg-node is absent,
+  # so `check` stays green without any of this.
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            packages/solver-worker
+            packages/solver-worker/reference
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - run: pnpm install --frozen-lockfile
+
+      # Build the nodejs-target WASM the validation harness loads.
+      - run: pnpm run build:solver:node
+
+      # Regenerate the crate-native reference fixture on this runner (so the
+      # comparison is wasm32-vs-this-host, not vs a fixture baked on another arch).
+      - run: pnpm run validate:solver:reference
+
+      # Part A (glue vs reference) + Part C (drift) + Part D (determinism). With
+      # pkg-node present these run instead of skipping.
+      - run: pnpm exec vitest run packages/strategy/src/solver-wasm.test.ts
+
+      # apps/web is not covered by the root `check` (tsconfig only spans packages/*/src).
+      # Build the web-target WASM so next build bundles the real engine, then gate
+      # the web app's typecheck + production build.
+      - run: pnpm run build:solver
+      - run: cd apps/web && pnpm exec tsc --noEmit && pnpm exec next build

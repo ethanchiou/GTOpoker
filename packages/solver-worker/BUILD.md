@@ -4,9 +4,11 @@ This crate compiles [`postflop-solver`](https://github.com/b-inary/postflop-solv
 (AGPL-3.0) to WebAssembly and exposes a single `solve(request_json) -> result_json`
 function consumed by the browser `WasmSolverTransport` (`apps/web/lib/solver/`).
 
-It is **not** built by `pnpm` or in CI — the default dev/CI environment has no
-Rust toolchain. Build it explicitly when you want real equilibrium EVs instead of
-the in-process baseline transport.
+It is not built by the default `pnpm run check` (no Rust toolchain there), so the
+in-process baseline transport stays the dev default. A dedicated **`wasm` CI job**
+(`.github/workflows/ci.yml`) does build it and run the solver-correctness
+validation (see [Validation](#validation-task-5)). Build it locally when you want
+real equilibrium EVs.
 
 ## Prerequisites
 
@@ -38,7 +40,39 @@ export, or import directly through the bundler) and flip the app's transport
 selection from the baseline to the WASM transport. Until then the app falls back
 to `BaselineSolverTransport` automatically.
 
+## Validation (task 5)
+
+Solver correctness is validated against a **crate-native reference** — a separate
+binary crate (`reference/`) that links `postflop-solver` directly (independent of
+this glue) and solves each spot from its true street-start values. Because both run
+the same engine, this is a differential test of *our glue*: range encoding, the
+street-start pot/effective-stack reconstruction (`lib.rs` derives them from the
+request; the reference uses the true values directly), the Phase B replay/snap, and
+the per-action EV read.
+
+```bash
+# 1. Build the nodejs-target WASM the TS harness loads (gitignored, like pkg/).
+pnpm run build:solver:node          # → packages/solver-worker/pkg-node/
+
+# 2. Regenerate the reference fixture (committed for local runs; CI regenerates it
+#    on its own runner so the comparison is wasm32-vs-that-host).
+pnpm run validate:solver:reference  # → packages/solver-worker/validation/reference-spots.json
+
+# 3. Run the validation tests.
+pnpm exec vitest run packages/strategy/src/solver-wasm.test.ts
+```
+
+`solver-wasm.test.ts` covers: **A** our glue vs the reference within tolerance (per
+combo, per action — subsumes the per-node weight-normalization read), **C** a
+baseline-vs-exact drift monitor (logged; baseline is a known approximation), and
+**D** determinism. It `skipIf`s when `pkg-node/` is absent, so `pnpm run check`
+stays green without the toolchain. The pure-TS half (range handoff + solve cache,
+`solver-validation.test.ts`) runs in the normal gate.
+
 ## Verification checklist (the `VERIFY:` markers in `src/lib.rs`)
+
+> Resolved as of Phase A/B (the crate compiles and the validation above passes).
+> Kept as a re-check list if the pinned crate version is ever bumped.
 
 `src/lib.rs` is written against the documented API but was authored without a
 compiler. On first build, confirm against your pinned `postflop-solver` version:
@@ -56,9 +90,10 @@ compiler. On first build, confirm against your pinned `postflop-solver` version:
 
 ## Known scaffold gaps (tracked TODOs)
 
-- **Facing a bet**: `solve_inner` currently reads the *root* node. When
-  `toCallChips > 0`, navigate to the real node first (thread the postflop action
-  path through the request and `game.play(...)` to it).
+- **Facing a bet**: ✅ resolved (Phase B) and validated (task 5). `solve_inner`
+  replays the request's `streetActionPath` into the tree to reach the hero's
+  facing-a-bet node; `replay_to_hero`/`nearest_aggressive` snap each villain
+  bet/raise to the nearest tree size.
 - **Performance**: iteration count / target exploitability and the bet-size tree
   are the levers from the deferred Phase-0 perf spike — measure on a real device
   and set the play-mode budget (pre-solve-on-flop, abort) around the result.

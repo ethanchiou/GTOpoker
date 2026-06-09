@@ -3,12 +3,13 @@
 > Working handoff for the next engineer/agent. Pairs with [`spec.md`](./spec.md)
 > (full design), [`README.md`](./README.md) (overview), and [`TODO.md`](./TODO.md)
 > (running task log). Last updated: 2026-06-07 — the **real WASM solver is built
-> and wired in as an opt-in engine**, and **task 4 is complete: Phase A
-> (first-to-act) + Phase B (facing-a-bet tree navigation) both land and are
-> browser-verified.** The WASM engine now serves the full set of heads-up
-> postflop nodes. **Immediate next task:** task 5 — **solver correctness
-> validation** against a reference solver (spec §15 Phase 2); see §2.1.
-> On branch `feat/wasm-postflop-solver`. Remaining tasks 5-7 in §2.1 + `TODO.md`.
+> and wired in as an opt-in engine** (task 4: Phase A first-to-act + Phase B
+> facing-a-bet, browser-verified), and **task 5 is complete: solver correctness
+> validation** (spec §15 Phase 2) lands against a **crate-native reference** with
+> the WASM build + validation now running in a dedicated CI job; see §2.1.
+> **Immediate next task:** task 6 — **preflop data/tree depth** (solved/licensed
+> ranges; promote multiway). On branch `feat/wasm-postflop-solver`. Remaining
+> tasks 6-7 in §2.1 + `TODO.md`.
 
 ## 1. What this is
 
@@ -55,7 +56,43 @@ baseline solver").
   - **Shared core helpers** (in `@gto/strategy` for CI coverage): `equityVsRange` + `potOddsPct` (`equity-vs-range.ts`), `buildPreflopLineNode` + `positionsBefore/After` (`live-node.ts`), and `villainContinuingRange` (`range-handoff.ts`). Tests: `equity-vs-range.test.ts`, `live-node.test.ts`. The web provider construction was extracted to `apps/web/lib/strategyProvider.ts` so both tabs share one provider + solve cache.
   - **spec.md §6.5** — the baseline→WASM transport-swap tradeoffs (benefits / costs / why baseline stays default).
 
-## 2.1 Task 4 — COMPLETE (Phase A + Phase B). Next: task 5
+## 2.1 Tasks 4 & 5 — COMPLETE. Next: task 6
+
+> **Task 5 landed 2026-06-07 — solver correctness validation (spec §15 Phase 2).**
+> Validated against a **crate-native reference**: a separate binary crate
+> (`packages/solver-worker/reference/`) links `postflop-solver` directly (the exact
+> engine wasm-postflop runs, independent of our glue) and solves each spot from its
+> *true* street-start values. Because both run the same engine, this is a
+> differential test of **our glue** — range encoding, the street-start
+> pot/effective-stack reconstruction (`lib.rs` derives them from the request; the
+> reference uses the true values), the Phase B replay/snap, and the per-action EV
+> read. Four parts: **(A)** our WASM vs the reference within tolerance per
+> combo/action (subsumes the per-node weight-normalization read); **(B)** range
+> handoff — exact combo enumeration, multi-action weight products, `recordedActionId`
+> snapping, `villainContinuingRange`; **(C)** a baseline-vs-exact drift monitor
+> (logged: baseline tracks well first-to-act/river, drifts ~0.45 mean on turn
+> facing-bet — the documented approximation, quantified); **(D)** solve-cache
+> identity + determinism; **(E)** graceful degradation — over-budget / too-large
+> trees decline to the baseline instead of trapping the wasm worker (see the
+> robustness fix below). Pure-TS parts (B, cache) run in `pnpm run check`
+> (`packages/strategy/src/solver-validation.test.ts`, +13 tests); WASM parts run in
+> a new **`wasm` CI job** that also closes the `apps/web` build gate
+> (`solver-wasm.test.ts`, +17 tests, `skipIf` pkg-node absent). See
+> `BUILD.md` → Validation. **Verified:** `pnpm run check` (305 tests) +
+> `build:solver:node` + `validate:solver:reference` + the WASM suite + `apps/web`
+> tsc/`next build`, all green, plus a headless-Chrome QA pass (Exact CFR solve
+> renders for facing-a-bet and first-to-act turn spots; no console errors).
+>
+> **Robustness fix (found in task-5 QA).** Large trees made the WASM `solve` panic
+> via `.unwrap()` — `PostFlopGame::with_config` returns `Err("Too many nodes")` for
+> a wide flop, and `allocate_memory` panics (`base.rs` isize::MAX guard) when CFR
+> storage is too big. A wasm panic **traps the instance**. Fixed in `lib.rs`: the
+> build calls now `map_err(...)?` to a typed Err, and a `memory_usage()` pre-check
+> (valid post-build, pre-alloc) declines over a `MAX_SOLVE_BYTES` budget (~1.86 GiB,
+> tunable per request via `maxSolveBytes`). All three paths return a typed Err →
+> the routing transport serves the baseline — no trap, no scary console panic, fast
+> deterministic fallback. (The flop still can't solve exactly in wasm; it now
+> degrades cleanly. Real flop solves remain task 7: pre-solve/abort/perf.)
 
 > **Phase B landed 2026-06-07.** Facing-a-bet nodes now solve via WASM by replaying
 > the current street's action path into the CFR tree. Implemented exactly as
@@ -194,8 +231,8 @@ turn+river runout). Facing-a-bet costs ~the same as first-to-act on the same str
 Flop usability is the separate pre-solve effort (task 7).
 
 ### Remaining tasks after Phase B
-5. **Solver correctness validation:** validate range handoff and postflop outputs
-   against the WASM/Postflop reference solver within tolerances (spec §15 Phase 2).
+5. ~~**Solver correctness validation**~~ — ✅ DONE 2026-06-07 (crate-native
+   reference; see the task 5 banner above + `BUILD.md` → Validation).
 6. **Preflop data/tree depth:** replace hand-authored ranges with solved/licensed
    preflop GTO data; promote multiway (squeeze / cold-call / cold-4bet) from the
    derived fallback to explicit solved charts + a Live Solver line.
@@ -226,7 +263,8 @@ packages/
                   (buildPreflopLineNode — fabricates a preflop GameNodeKey without playing a hand)
   scoring         EV-loss, classification, mixed-strategy credit, bet-size grading, session stats
   hand-history    STUB (Phase 3: PokerStars import/export + replay records)
-  solver-worker   Rust→WASM glue around postflop-solver (built separately; see BUILD.md)
+  solver-worker   Rust→WASM glue around postflop-solver (built separately; see BUILD.md);
+                  reference/ = crate-native validation harness; validation/ = its reference fixture
 data/preflop-charts/6max_100bb_v1/manifest.json   active chart set (versioned, CI-validated)
 apps/web         Next.js client: app/page.tsx (Trainer | Live Solver tab shell), lib/store.ts (Zustand),
                  lib/strategyProvider.ts (shared provider+cache), lib/replay.ts, lib/solver/ (transport+worker),
@@ -407,13 +445,17 @@ Surface the same three numbers for the hero's current hand on the existing decis
 
 ## 8. Gotchas / non-obvious constraints
 
-- **`apps/web` is not typechecked or built in CI.** The root `tsconfig.json` and CI
-  only cover `packages/*/src`. Always run `cd apps/web && tsc --noEmit && next build`
-  manually after touching the web app.
+- **`apps/web` is not in the root `check` gate.** The root `tsconfig.json` and the
+  `check` CI job only cover `packages/*/src`. The new **`wasm` CI job** does run
+  `apps/web` tsc + `next build` (after building the WASM artifact), but it only
+  fires when the Rust toolchain step succeeds — so still run `cd apps/web && tsc
+  --noEmit && next build` locally after touching the web app for a fast signal.
 - **Baseline transport EVs are approximate** (one-shot equity + size-based fold
   equity; facing-a-bet models only fold/call). Labeled in the UI. Real EVs need the WASM.
-- **`solver-worker/src/lib.rs` is an unverified scaffold** — written against the
-  documented API but never compiled here. Expect to fix a few `VERIFY:` spots.
+- **`solver-worker/src/lib.rs` is compiled + validated** (Phase A/B + task 5). The
+  `VERIFY:` markers are resolved; correctness is pinned by the crate-native
+  reference (`BUILD.md` → Validation). Re-check the markers only if the pinned crate
+  rev is bumped.
 - **Multiway postflop is unsupported by design** (HU-by-the-flop only); such nodes
   are flagged in the UI and not graded.
 - **Determinism:** decks are seed-derived; the replayer relies on re-creating a hand
