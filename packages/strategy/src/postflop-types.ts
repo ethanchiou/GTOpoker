@@ -76,6 +76,13 @@ export interface SolveRequest {
    */
   maxIterations?: number
   targetExploitabilityFraction?: number
+  /**
+   * Hard ceiling on the WASM solve's CFR storage in bytes. Trees over it decline
+   * to the baseline rather than allocating memory too large for wasm to address
+   * (which would otherwise panic inside the solver and trap the worker). Ignored by
+   * the baseline transport; defaults to a safe in-wasm budget when unset.
+   */
+  maxSolveBytes?: number
 }
 
 /** A single combo's equilibrium action mix at the node, with per-action EV (bb). */

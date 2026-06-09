@@ -78,7 +78,20 @@ struct SolveRequestDto {
     max_iterations: Option<u32>,
     #[serde(default)]
     target_exploitability_fraction: Option<f64>,
+    /// Hard ceiling on this solve's CFR storage in bytes. Over it the solver
+    /// declines (typed Err → baseline) instead of allocating a tree too large for
+    /// wasm to address. Defaults to `MAX_SOLVE_BYTES`. The baseline ignores it.
+    #[serde(default)]
+    max_solve_bytes: Option<u64>,
 }
+
+/// Default ceiling on a single solve's CFR storage. wasm32 addresses ~4 GiB; past
+/// this the tree is too large to allocate reliably — the crate panics inside
+/// `allocate_memory` when a storage array exceeds `isize::MAX`, and a wasm panic
+/// traps the instance. We check `game.memory_usage()` (valid post-build, pre-alloc)
+/// against this and return a typed Err so the routing transport falls back to the
+/// baseline cleanly, with headroom for the runtime + range buffers. ~1.86 GiB.
+const MAX_SOLVE_BYTES: u64 = 2_000_000_000;
 
 #[derive(Serialize)]
 struct ActionDto {
@@ -222,8 +235,26 @@ fn solve_inner(req: &SolveRequestDto) -> Result<SolveResultDto, String> {
         merging_threshold: 0.1,
     };
 
-    let action_tree = ActionTree::new(tree_config).unwrap();
-    let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+    // Build the tree/game with typed errors, not `.unwrap()`. A wasm panic traps the
+    // instance; instead, any build failure (e.g. the crate's "Too many nodes" cap on
+    // a wide flop tree) returns an Err so the routing transport falls back to the
+    // baseline. This is the EARLIEST decline point — it fires before memory sizing.
+    let action_tree = ActionTree::new(tree_config)
+        .map_err(|e| format!("wasm solver: action tree too large ({e}); using baseline"))?;
+    let mut game = PostFlopGame::with_config(card_config, action_tree)
+        .map_err(|e| format!("wasm solver: game build failed ({e}); using baseline"))?;
+
+    // Then decline trees too large for wasm BEFORE allocating: `allocate_memory`
+    // panics when storage exceeds isize::MAX. `memory_usage()` is valid post-build
+    // and returns the uncompressed byte estimate we are about to allocate. Returning
+    // a typed Err here routes the node to the baseline — no trap, no allocation, fast.
+    let max_bytes = req.max_solve_bytes.unwrap_or(MAX_SOLVE_BYTES);
+    let (needed_bytes, _) = game.memory_usage();
+    if needed_bytes > max_bytes {
+        return Err(format!(
+            "wasm solver: solve needs {needed_bytes} bytes (over the {max_bytes}-byte budget); tree too large, using baseline"
+        ));
+    }
     game.allocate_memory(false);
 
     // Solve to a target exploitability or iteration cap, whichever comes first.
